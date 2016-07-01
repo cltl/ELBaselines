@@ -57,3 +57,25 @@ def naf2inlineEntities(filename, overlap=False):
 			for extRef in entity.get_external_references():
 				goldEntities[str(allTokens[str(mini)]["offset"])]= extRef.get_reference()
 	return composeText(allTokens), goldEntities
+
+def computePRF(myConll):
+	tp=0
+	fp=0
+	fn=0
+	for sf in myConll:
+		sfPieces=myConll.split()
+		gold=sfPieces[1]
+		system=sfPieces[2]
+		if system.lower()==gold.lower():
+			tp+=1
+		else:
+			if system.lower() not in ["none", "nill"]:
+				fp+=1
+			if gold.lower() not in ["none", "nill"]:
+				fn+=1
+
+	prec=tp/(tp+fp)
+	recall=tp/(tp+fn)
+	f1=2*prec*recall/(prec+recall)
+	
+	return prec, recall, f1
