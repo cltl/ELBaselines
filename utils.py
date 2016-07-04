@@ -58,19 +58,19 @@ def naf2inlineEntities(filename, overlap=False):
 				goldEntities[str(allTokens[str(mini)]["offset"])]= extRef.get_reference()
 	return composeText(allTokens), goldEntities
 
-def removePath(s):
-	return s.replace("http://en.wikipedia.org/wiki/", "").replace("http://dbpedia.org/resource/", ""). replace("http://dbpedia.org/page/", "").lower()
+def normalizeURL(s):
+	return s.replace("http://en.wikipedia.org/wiki/", "").replace("http://dbpedia.org/resource/", ""). replace("http://dbpedia.org/page/", "").lower().strip()
 
-def computePRF(myConll):
+def computePRF(fn):
+	myConll=open(fn, "r")
 	tp=0
 	fp=0
 	fn=0
-	w=open("myfile.out", "w")
-	w.write(myConll)
 	for sf in myConll:
-		sfPieces=myConll.split()
+		sfPieces=sf.split()
 		gold=sfPieces[1]
 		system=sfPieces[2]
+		print(gold, system)
 		if system==gold:
 			tp+=1
 		else:
