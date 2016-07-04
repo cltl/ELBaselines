@@ -20,8 +20,8 @@ if __name__=="__main__":
 		for agd_entity in da:
 			print(agd_entity)
 			offset=str(agd_entity["start"])
-			agd_link=str(agd_entity["disambiguatedURL"])
-			goldlink=str(entities[offset])
+			agd_link=utils.removePath(str(agd_entity["disambiguatedURL"]))
+			goldlink=utils.removePath(str(entities[offset]))
 			id=file + offset
 			myConll+="%s\t%s\t%s\n" % (id, goldlink, agd_link)
 	p, r, f1=utils.computePRF(myConll)
