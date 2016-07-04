@@ -1,3 +1,8 @@
+#!/usr/bin/python
+
+# Filip Ilievski
+# June 2016
+
 import sys
 from KafNafParserPy import *
 

@@ -1,3 +1,8 @@
+#!/usr/bin/python
+
+# Filip Ilievski
+# June 2016
+
 import utils
 import dis_agdistis
 import os
