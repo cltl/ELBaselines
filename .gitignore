@@ -1,1 +1,6 @@
 *.out
+*.tsv
+*/*.tsv
+*/*/.naf
+NAFS/
+CONLL/

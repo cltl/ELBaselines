@@ -6,11 +6,12 @@
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
-spotlightUrl="http://spotlight.dbpedia.org/rest/disambiguate"
+spotlightUrl="http://spotlight.dbpedia.org/annotate/"
 
 def disambiguate(xmlText):
-	params={"text": xmlText}
+	params={"spotter": "SpotXmlParser", "text": xmlText}
 	encodedParams=urlencode(params)
+#	encodedParams=params
 	reqUrl=spotlightUrl + "?" + encodedParams
 	print(reqUrl)
 	res=urlopen(reqUrl)
@@ -39,7 +40,7 @@ def prepareSpotlightXml(text, mentions):
 	return myXml
 
 
-with open('example.txt', 'r') as myfile:
+with open('examples/example.txt', 'r') as myfile:
 	text=myfile.read().replace('\n', '')
 
 print(text)

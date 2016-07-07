@@ -71,19 +71,31 @@ def computePRF(fn):
 	tp=0
 	fp=0
 	fn=0
+	lenEnt=0
+	goldNils=0
+	systemNils=0
+	nones=["none", "nil", "--nme--"]
 	for sf in myConll:
-		sfPieces=sf.split()
-		gold=sfPieces[1]
-		system=sfPieces[2]
+		sfPieces=sf.split('\t')
+		print(sfPieces)
+		gold=sfPieces[1].strip()
+		system=sfPieces[2].strip()
 		print(gold, system)
-		if system==gold:
+		lenEnt+=1
+		if system in nones:
+			systemNils+=1
+		if gold in nones:
+			goldNils+=1
+		if system==gold or (system in nones and gold in nones):
 			tp+=1
 		else:
-			if system not in ["none", "nill"]:
+			if system not in nones:
 				fp+=1
-			if gold not in ["none", "nill"]:
+			if gold not in nones:
 				fn+=1
 
+
+	print("%d entities. %d gold nils, %d system nils" % (lenEnt, goldNils, systemNils))
 	print(tp, fp, fn)
 	prec=tp/(tp+fp)
 	recall=tp/(tp+fn)
