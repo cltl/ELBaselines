@@ -1,6 +1,8 @@
+*.tsv
 *.out
 *.tsv
 */*.tsv
 */*/.naf
 NAFS/
 CONLL/
+dump.rdb

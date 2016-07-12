@@ -41,8 +41,9 @@ if __name__=="__main__":
 							da=dis_agdistis.disambiguate(myXml, "agdistis")
 							for agd_entity in da:
 								offset=str(agd_entity["start"])
-								agd_link=utils.normalizeURL(str(agd_entity["disambiguatedURL"]))
-								goldlink=utils.normalizeURL(str(goldEntities[offset]))
+								agd_link=utils.normalizeURL(agd_entity["disambiguatedURL"])
+								goldlink=utils.checkRedirects(utils.normalizeURL(goldEntities[offset]))
+								print(agd_link, goldlink)
 								id=currentArticle + offset
 								myConll+="%s\t%s\t%s\n" % (id, goldlink, agd_link)
 						testB=True
@@ -67,7 +68,10 @@ if __name__=="__main__":
 					if tokenInfo[1].strip()=='B':
 						entitiesNumber+=1
 						articleEntities+=1
-						goldEntities[str(offset)]=tokenInfo[3]
+						if tokenInfo[3]=='--NME--':
+							goldEntities[str(offset)]=tokenInfo[3]
+						else:
+							goldEntities[str(offset)]=tokenInfo[4]
 						text='<entity>' + text
 						if tokenInfo[0].strip()==tokenInfo[2].strip():
 							text+='</entity>'
@@ -89,8 +93,9 @@ if __name__=="__main__":
 			da=dis_agdistis.disambiguate(myXml, "agdistis")
 			for agd_entity in da:
 				offset=str(agd_entity["start"])
-				agd_link=utils.normalizeURL(str(agd_entity["disambiguatedURL"]))
-				goldlink=utils.normalizeURL(str(goldEntities[offset]))
+				agd_link=utils.normalizeURL(agd_entity["disambiguatedURL"])
+				goldlink=utils.checkRedirects(utils.normalizeURL(goldEntities[offset]))
+				print(agd_link, goldlink)
 				id=currentArticle + offset
 				myConll+="%s\t%s\t%s\n" % (id, goldlink, agd_link)
 
