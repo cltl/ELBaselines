@@ -12,6 +12,9 @@ from collections import defaultdict, Counter
 sparql = SPARQLWrapper("http://dbpedia.org/sparql")
 nones=["none", "nil", "--nme--"]
 
+def computeUpperBound(potential, total):
+	print("Upper bound: %f (%d out of %d surface forms" % (potential/total, potential, total))
+
 def checkRedirects(e):
 	rds=redis.Redis()
 	fromCache=rds.get(e)
@@ -144,7 +147,7 @@ def computePRF(tp, fp, fn):
 	f1=2*prec*recall/(prec+recall)
 	return prec, recall, f1
 
-def computeStats(fn, rankAnalysis=True, topicAnalysis=True):
+def computeStats(fn, thirdParty=True, rankAnalysis=True, topicAnalysis=True):
 	myConll=open(fn, "r")
 	tp=0
 	fp=0
@@ -163,7 +166,10 @@ def computeStats(fn, rankAnalysis=True, topicAnalysis=True):
 	for sf in myConll:
 		sfPieces=sf.split('\t')
 		gold=sfPieces[1].strip()
-		system=sfPieces[2].strip()
+		if thirdParty:
+			system=sfPieces[2].strip()
+		else:
+			system=sfPieces[-1].strip()
 		currentTopic=sfPieces[3].strip()
 		lenEnt+=1
 		s=sfPieces[0].strip()
