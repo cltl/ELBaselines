@@ -7,8 +7,11 @@ import sys
 from KafNafParserPy import *
 import redis
 from SPARQLWrapper import SPARQLWrapper, JSON
+from collections import defaultdict, Counter
 
 sparql = SPARQLWrapper("http://dbpedia.org/sparql")
+nones=["none", "nil", "--nme--"]
+
 def checkRedirects(e):
 	rds=redis.Redis()
 	fromCache=rds.get(e)
@@ -25,7 +28,6 @@ def checkRedirects(e):
 		for result in results["results"]["bindings"]:
 			red=str(result["c"]["value"])
 			r=normalizeURL(red)
-			print(e,r)
 			rds.set(e,r)
 			return r
 		print("NO REDIRECT",e)
@@ -33,28 +35,42 @@ def checkRedirects(e):
 		return e
 
 def getRanks(e1, e2):
-	print(e1, e2)
-	sparql.setQuery("""
-	PREFIX rdf:<http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-	PREFIX dbo:<http://dbpedia.org/ontology/>
+	return getRank(e1), getRank(e2)
 
-	PREFIX vrank:<http://purl.org/voc/vrank#>
+def getRank(e):
+	print("Looking for the rank of %s" % e)
+	if e.lower() in nones:
+		print("e is a none")
+		return 0.0
+	rds=redis.Redis()
+	fromCache=rds.get("rank:%s" % e)
+	
+	if fromCache:
+		print("CACHED", e, float(fromCache))
+		return float(fromCache)
+	else:
+		elink=makeDbpedia(e)
+		sparql.setQuery("""
+			PREFIX rdf:<http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+			PREFIX dbo:<http://dbpedia.org/ontology/>
 
-	SELECT ?v1 ?v2
-	FROM <http://dbpedia.org>
-	FROM <http://people.aifb.kit.edu/ath/#DBpedia_PageRank>
-	WHERE {
-	<%s> vrank:hasRank/vrank:rankValue ?v1.
-	<%s> vrank:hasRank/vrank:rankValue ?v2.
-	}
-	""" % (e1, e2))
-	sparql.setReturnFormat(JSON)
-	results = sparql.query().convert()
+			PREFIX vrank:<http://purl.org/voc/vrank#>
 
-	for result in results["results"]["bindings"]:
-		v1=float(result["v1"]["value"])
-		v2=float(result["v2"]["value"])
-		return v1, v2
+			SELECT ?v
+			FROM <http://dbpedia.org>
+			FROM <http://people.aifb.kit.edu/ath/#DBpedia_PageRank>
+			WHERE {
+			<%s> vrank:hasRank/vrank:rankValue ?v.
+			}
+		""" % elink)
+		sparql.setReturnFormat(JSON)
+		results = sparql.query().convert()
+
+		for result in results["results"]["bindings"]:
+			v=float(result["v"]["value"])
+			print("Not cached: %f for %s" % (v, e))
+			rds.set("rank:%s" % e, v)
+			return v
 
 def usingSplit2(line, _len=len):
         words = line.split()
@@ -122,7 +138,13 @@ def normalizeURL(s):
 def makeDbpedia(x):
 	return "http://dbpedia.org/resource/" + x
 
-def computePRF(fn, advanced=False):
+def computePRF(tp, fp, fn):
+	prec=tp/(tp+fp)
+	recall=tp/(tp+fn)
+	f1=2*prec*recall/(prec+recall)
+	return prec, recall, f1
+
+def computeStats(fn, rankAnalysis=True, topicAnalysis=True):
 	myConll=open(fn, "r")
 	tp=0
 	fp=0
@@ -134,20 +156,26 @@ def computePRF(fn, advanced=False):
 	systemPopular=0
 	systemRank=0.0
 	goldRank=0.0
-	nones=["none", "nil", "--nme--"]
 	aggregated_wrong={}
 	aggregated_correct={}
+	topicAcc=defaultdict(list)
+	topicArticles=defaultdict(set)
 	for sf in myConll:
 		sfPieces=sf.split('\t')
 		gold=sfPieces[1].strip()
 		system=sfPieces[2].strip()
+		currentTopic=sfPieces[3].strip()
 		lenEnt+=1
+		s=sfPieces[0].strip()
+		currentArticle=s[s.find("(")+1:s.find(")")]
+		topicArticles[currentTopic].add(currentArticle)
 		if system.lower() in nones:
 			systemNils+=1
 		if gold.lower() in nones:
 			goldNils+=1
 		if system.lower()==gold.lower() or (system.lower() in nones and gold.lower() in nones):
 			tp+=1
+			topicAcc[currentTopic].append('tp');
 			if gold.lower() in aggregated_correct:
                                 aggregated_correct[gold.lower()]+=1
 			else:
@@ -155,20 +183,26 @@ def computePRF(fn, advanced=False):
 		else:
 			if system.lower() not in nones:
 				fp+=1
+				topicAcc[currentTopic].append('fp');
 			if gold.lower() not in nones:
 				fn+=1
+				topicAcc[currentTopic].append('fn');
 			if gold.lower() in aggregated_wrong:
 				aggregated_wrong[gold.lower()]+=1
 			else:
 				aggregated_wrong[gold.lower()]=1
-		if advanced and system.lower()!=gold.lower() and system.lower() not in nones and gold.lower() not in nones:
-			v1,v2=getRanks(makeDbpedia(system), makeDbpedia(gold))
-			if v1>v2:
+		if rankAnalysis and system.lower()!=gold.lower() and system.lower() not in nones and gold.lower() not in nones:
+			vgold=float(sfPieces[4])
+			vsys=float(sfPieces[5])
+			if vsys>vgold:
+				print("%s (system) is more popular than %s (gold)" % (system, gold))
 				systemPopular+=1
-			elif v1<v2:
-				goldPopular+=1 
-			systemRank+=v1
-			goldRank+=v2
+			elif vsys<vgold:
+				print("%s (gold) is more popular than %s (system)" % (gold, system))
+				goldPopular+=1
+			systemRank+=vsys
+			goldRank+=vgold
+			
 
 	print("System more popular in %d cases. Gold more popular in %d cases" % (systemPopular, goldPopular))
 	print("System rank total: %f. Gold rank total: %f." % (systemRank, goldRank))
@@ -178,8 +212,16 @@ def computePRF(fn, advanced=False):
 	print("WRONG:",aggw[:10])
 	print("%d entities. %d gold nils, %d system nils" % (lenEnt, goldNils, systemNils))
 	print(tp, fp, fn)
-	prec=tp/(tp+fp)
-	recall=tp/(tp+fn)
-	f1=2*prec*recall/(prec+recall)
-	
-	return prec, recall, f1
+
+	print(topicAcc)
+	for k,v in topicAcc.items():
+		cntr=Counter(v)
+		topicTp=cntr['tp']
+		topicFn=cntr['fn']
+		topicFp=cntr['fp']
+		topicPrec, topicRecall, topicF1=computePRF(topicTp, topicFp, topicFn)
+		print("Topic %s (%d articles), Precision: %s, Recall: %s, F1: %s" % (k, len(topicArticles[k]), topicPrec, topicRecall, topicF1))
+	print(topicArticles)
+	print(len(topicAcc))
+
+	return computePRF(tp, fp, fn)

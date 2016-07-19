@@ -43,9 +43,11 @@ if __name__=="__main__":
 								offset=str(agd_entity["start"])
 								agd_link=utils.normalizeURL(agd_entity["disambiguatedURL"])
 								goldlink=utils.checkRedirects(utils.normalizeURL(goldEntities[offset]))
-								print(agd_link, goldlink)
 								id=currentArticle + offset
-								myConll+="%s\t%s\t%s\n" % (id, goldlink, agd_link)
+								mention=goldMentions[offset]
+								v1,v2=utils.getRanks(goldlink, agd_link)
+								print(v1, v2)
+								myConll+="%s\t%s\t%s\t%s\t%f\t%f\t%s\n" % (id, goldlink, agd_link, currentTopic, v1, v2, mention)
 						testB=True
 						line=line.strip()
 						articleInfo=line.split('\t')
@@ -56,6 +58,7 @@ if __name__=="__main__":
 						tid=1
 						allTokens={}
 						goldEntities={}
+						goldMentions={}
 					else:
 						testB=False
 				elif testB:
@@ -66,6 +69,7 @@ if __name__=="__main__":
 						allTokens[str(tid-1)]['text']+='</entity>'
 						registeredEntities+=1
 					if tokenInfo[1].strip()=='B':
+						goldMentions[str(offset)]=tokenInfo[2].strip()
 						entitiesNumber+=1
 						articleEntities+=1
 						if tokenInfo[3]=='--NME--':
@@ -95,12 +99,13 @@ if __name__=="__main__":
 				offset=str(agd_entity["start"])
 				agd_link=utils.normalizeURL(agd_entity["disambiguatedURL"])
 				goldlink=utils.checkRedirects(utils.normalizeURL(goldEntities[offset]))
-				print(agd_link, goldlink)
+				mention=goldMentions[offset]
 				id=currentArticle + offset
-				myConll+="%s\t%s\t%s\n" % (id, goldlink, agd_link)
+				v1,v2=utils.getRanks(goldlink, agd_link)
+				myConll+="%s\t%s\t%s\t%s\t%f\t%f\t%s\n" % (id, goldlink, agd_link, currentTopic, v1, v2, mention)
 
 		print(entitiesNumber)	
 		w=open(myFile, "w")
 		w.write(myConll)
-	p, r, f1=utils.computePRF(myFile)
+	p, r, f1=utils.computeStats(myFile)
 	print("Precision: %f, Recall: %f, F1-value: %f" % (p, r, f1))

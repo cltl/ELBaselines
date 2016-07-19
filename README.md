@@ -15,3 +15,4 @@ python3 run_naf.py GOLD/aida_naf {outputfile}
 * In-depth error analysis:
   * Entity types
   * Topics
+* Analyze candidates
