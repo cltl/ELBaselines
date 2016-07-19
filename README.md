@@ -8,11 +8,10 @@ python3 run_naf.py GOLD/aida_naf {outputfile}
 
 ## TODO:
 * Running other systems
-⋅⋅* AGDISTIS (Done)
-⋅⋅* Spotlight (Pending)
-⋅⋅* ADEL (Pending)
+  * AGDISTIS (Done)
+  * Spotlight (Pending)
+  * ADEL (Pending)
+  * Babelfy (Pending)
 * In-depth error analysis:
-⋅⋅* Popularity of correct vs chosen interpretation
-⋅⋅* Entities that are always wrong
-⋅⋅* Entity types
-* Fix encoding issue of AIDA
+  * Entity types
+  * Topics
