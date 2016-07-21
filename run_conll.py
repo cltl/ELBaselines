@@ -39,7 +39,7 @@ if __name__=="__main__":
 							registeredEntities=0
 							myXml=utils.composeText(allTokens)
 							da=dis_agdistis.disambiguate(myXml, "agdistis")
-							for agd_entity in da:
+							for agd_entity in sorted(da, key=lambda k: k['start']):
 								offset=str(agd_entity["start"])
 								agd_link=utils.normalizeURL(agd_entity["disambiguatedURL"])
 								goldlink=utils.checkRedirects(utils.normalizeURL(goldEntities[offset]))
@@ -95,7 +95,7 @@ if __name__=="__main__":
 				sys.exit(0)
 			myXml=utils.composeText(allTokens)
 			da=dis_agdistis.disambiguate(myXml, "agdistis")
-			for agd_entity in da:
+			for agd_entity in sorted(da, key=lambda k: k['start']):
 				offset=str(agd_entity["start"])
 				agd_link=utils.normalizeURL(agd_entity["disambiguatedURL"])
 				goldlink=utils.checkRedirects(utils.normalizeURL(goldEntities[offset]))
