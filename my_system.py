@@ -11,22 +11,46 @@ import pickle
 from py2neo import Graph
 
 rds=redis.Redis(socket_timeout=5)
+def getPreviousOccurrence(c, entities):
+	eid=len(entities)
+	while eid>0:
+		if entities[str(eid)]==c:
+			return eid
+		eid-=1
+	return -1
+
+def maxCoherence(w, l):
+	m=0.0
+	c=0
+	while c<l:
+		m+=w[str(c)]
+		c+=1
+	return m
+
 def disambiguateEntity(currentEntity, candidates, weights,resolvedEntities, factorWeights, maxCount):
 	if len(candidates):
-		max_score=-0.1
+		max_score=0.45
+		aging_factor=0.1
 		best_candidate=None
 		for cand in candidates:
 			candidate=cand[0]
 			ss=cand[1]["ss"]
 			associativeness=cand[1]["count"]/maxCount
-			coherence=computeCoherence(candidate, resolvedEntities, weights)
-			score=factorWeights['wss']*ss+factorWeights['wc']*coherence+factorWeights["wa"]*associativeness
+			normalizationFactor=maxCoherence(weights, min(10,len(resolvedEntities)))
+			coherence=computeCoherence(candidate, resolvedEntities, weights)/normalizationFactor
+			lastId=getPreviousOccurrence(candidate, resolvedEntities)
+			recency=0.0
+			if lastId>-1:				
+				age=len(resolvedEntities)+1-lastId
+				recency=(1-aging_factor)**age
+			score=factorWeights['wss']*ss+factorWeights['wc']*coherence+factorWeights["wa"]*associativeness+factorWeights['wr']*recency
 			if score>max_score and not isDisambiguation(candidate):
+				print("new maximum score")
 				max_score=score
 				best_candidate=candidate
-		return utils.normalizeURL(best_candidate)
+		return utils.normalizeURL(best_candidate), max_score
 	else:
-		return "--NME--"
+		return "--NME--", 1.0
 
 def isDisambiguation(c):
         query='select ?b where { <' + c + '> <http://dbpedia.org/ontology/wikiPageDisambiguates> ?b } LIMIT 1'
@@ -177,7 +201,7 @@ def computeWeights(n):
 		i+=1
 	return w
 
-def run(fn, topic='WAR_CIVIL_WAR', factorWeights={'wss':0.4,'wc':0.4, 'wa':0.2}):
+def run(fn, topic='WAR_CIVIL_WAR', factorWeights={'wss':0.4,'wc':0.4, 'wa':0.1, 'wr': 0.1}):
 	#articles=['1314testb Third']
 	topicsToArticles=pickle.load(open('topics.p', 'rb'))
 	articles=topicsToArticles[topic]
@@ -201,9 +225,9 @@ def run(fn, topic='WAR_CIVIL_WAR', factorWeights={'wss':0.4,'wc':0.4, 'wa':0.2})
 				goldLink=lineArray[1]
 				systemLink=lineArray[2]
 				candidates, maxCount=generateCandidatesWithLOTUS(mention, minSize, maxSize)
-				myLink=disambiguateEntity(mention, candidates, weights, resolvedEntities, factorWeights, maxCount)
+				myLink, score=disambiguateEntity(mention, candidates, weights, resolvedEntities, factorWeights, maxCount)
 				resolvedEntities[str(len(resolvedEntities)+1)]=myLink
-				w.write("%s\t%s\n" % (line, myLink))
+				w.write("%s\t%f\t%s\n" % (line, score, myLink))
 				"""
 				if goldLink!='--NME--':
 					if utils.makeDbpedia(goldLink) in candidates:
