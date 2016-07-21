@@ -9,14 +9,14 @@ python3 run_naf.py GOLD/aida_naf {outputfile}
 ## TODO:
 * Running other systems
   * AGDISTIS (Done)
-  * Spotlight (Pending)
-  * ADEL (Pending)
-  * Babelfy (Pending)
+  * Babelfy (To try)
+  * Spotlight (Pending communication)
+  * ADEL (Not Available ATM)
 * In-depth error analysis:
   * Analyze candidates
   * Compute upperbound
 * My system
   * Run on wikinews data
-  * Add the 'recency' score
   * NILs where the confidence is low
   * LOTUS encoded candidates
+  * Compute scores on low-level and top-level topics

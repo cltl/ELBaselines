@@ -29,14 +29,15 @@ def maxCoherence(w, l):
 
 def disambiguateEntity(currentEntity, candidates, weights,resolvedEntities, factorWeights, maxCount):
 	if len(candidates):
-		max_score=0.45
+		max_score=0.00
 		aging_factor=0.1
 		best_candidate=None
 		for cand in candidates:
 			candidate=cand[0]
 			ss=cand[1]["ss"]
 			associativeness=cand[1]["count"]/maxCount
-			normalizationFactor=maxCoherence(weights, min(10,len(resolvedEntities)))
+#			normalizationFactor=maxCoherence(weights, min(10,len(resolvedEntities)))
+			normalizationFactor=1.0
 			coherence=computeCoherence(candidate, resolvedEntities, weights)/normalizationFactor
 			lastId=getPreviousOccurrence(candidate, resolvedEntities)
 			recency=0.0
@@ -45,7 +46,6 @@ def disambiguateEntity(currentEntity, candidates, weights,resolvedEntities, fact
 				recency=(1-aging_factor)**age
 			score=factorWeights['wss']*ss+factorWeights['wc']*coherence+factorWeights["wa"]*associativeness+factorWeights['wr']*recency
 			if score>max_score and not isDisambiguation(candidate):
-				print("new maximum score")
 				max_score=score
 				best_candidate=candidate
 		return utils.normalizeURL(best_candidate), max_score
@@ -121,9 +121,11 @@ def computeShortestPathCoherence(node1, node2, w):
 	#    print(("\nShortest Path:", path))
 		if path:
 			rds.set("%s:%s" % (node1, node2), 1/path["length"])
+			rds.set("%s:%s" % (node2, node1), 1/path["length"])
 			return w/path["length"]
 		else:
 			rds.set("%s:%s" % (node1, node2), 0.0)
+			rds.set("%s:%s" % (node2, node1), 0.0)
 			return 0.0
 
 def generateCandidatesWithLOTUS(mention, minSize=10, maxSize=100):
