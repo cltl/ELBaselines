@@ -216,7 +216,6 @@ def computeStats(filename, thirdParty=True, rankAnalysis=True, topicAnalysis=Tru
 	print("WRONG:",aggw[:10])
 	print("%d entities. %d gold nils, %d system nils" % (lenEnt, goldNils, systemNils))
 
-	print(topicAcc)
 	for k,v in topicAcc.items():
 		cntr=Counter(v)
 		topicTp=cntr['tp']
