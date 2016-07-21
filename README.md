@@ -13,6 +13,10 @@ python3 run_naf.py GOLD/aida_naf {outputfile}
   * ADEL (Pending)
   * Babelfy (Pending)
 * In-depth error analysis:
-  * Entity types
-  * Topics
-* Analyze candidates
+  * Analyze candidates
+  * Compute upperbound
+* My system
+  * Run on wikinews data
+  * Add the 'recency' score
+  * NILs where the confidence is low
+  * LOTUS encoded candidates

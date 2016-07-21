@@ -12,11 +12,13 @@ from collections import defaultdict, Counter
 sparql = SPARQLWrapper("http://dbpedia.org/sparql")
 nones=["none", "nil", "--nme--"]
 
+def computeUpperBound(potential, total):
+	print("Upper bound: %f (%d out of %d surface forms" % (potential/total, potential, total))
+
 def checkRedirects(e):
 	rds=redis.Redis()
 	fromCache=rds.get(e)
 	if fromCache:
-		print("CACHED", e, fromCache.decode())
 		return fromCache.decode()
 	else:
 		sparql.setQuery("""
@@ -30,7 +32,6 @@ def checkRedirects(e):
 			r=normalizeURL(red)
 			rds.set(e,r)
 			return r
-		print("NO REDIRECT",e)
 		rds.set(e,e)
 		return e
 
@@ -38,7 +39,6 @@ def getRanks(e1, e2):
 	return getRank(e1), getRank(e2)
 
 def getRank(e):
-	print("Looking for the rank of %s" % e)
 	if e.lower() in nones:
 		print("e is a none")
 		return 0.0
@@ -144,8 +144,8 @@ def computePRF(tp, fp, fn):
 	f1=2*prec*recall/(prec+recall)
 	return prec, recall, f1
 
-def computeStats(fn, rankAnalysis=True, topicAnalysis=True):
-	myConll=open(fn, "r")
+def computeStats(filename, thirdParty=True, rankAnalysis=True, topicAnalysis=True):
+	myConll=open(filename, "r")
 	tp=0
 	fp=0
 	fn=0
@@ -160,10 +160,15 @@ def computeStats(fn, rankAnalysis=True, topicAnalysis=True):
 	aggregated_correct={}
 	topicAcc=defaultdict(list)
 	topicArticles=defaultdict(set)
+	cl=0
 	for sf in myConll:
+		cl+=1
 		sfPieces=sf.split('\t')
 		gold=sfPieces[1].strip()
-		system=sfPieces[2].strip()
+		if thirdParty:
+			system=sfPieces[2].strip()
+		else:
+			system=sfPieces[-1].strip()
 		currentTopic=sfPieces[3].strip()
 		lenEnt+=1
 		s=sfPieces[0].strip()
@@ -195,15 +200,14 @@ def computeStats(fn, rankAnalysis=True, topicAnalysis=True):
 			vgold=float(sfPieces[4])
 			vsys=float(sfPieces[5])
 			if vsys>vgold:
-				print("%s (system) is more popular than %s (gold)" % (system, gold))
 				systemPopular+=1
 			elif vsys<vgold:
-				print("%s (gold) is more popular than %s (system)" % (gold, system))
 				goldPopular+=1
 			systemRank+=vsys
 			goldRank+=vgold
 			
 
+	print("%d lines" % cl)
 	print("System more popular in %d cases. Gold more popular in %d cases" % (systemPopular, goldPopular))
 	print("System rank total: %f. Gold rank total: %f." % (systemRank, goldRank))
 	aggc = sorted(aggregated_correct.items(), key=lambda k: k[1], reverse=True)
@@ -211,9 +215,7 @@ def computeStats(fn, rankAnalysis=True, topicAnalysis=True):
 	aggw = sorted(aggregated_wrong.items(), key=lambda k: k[1], reverse=True)
 	print("WRONG:",aggw[:10])
 	print("%d entities. %d gold nils, %d system nils" % (lenEnt, goldNils, systemNils))
-	print(tp, fp, fn)
 
-	print(topicAcc)
 	for k,v in topicAcc.items():
 		cntr=Counter(v)
 		topicTp=cntr['tp']
@@ -221,7 +223,4 @@ def computeStats(fn, rankAnalysis=True, topicAnalysis=True):
 		topicFp=cntr['fp']
 		topicPrec, topicRecall, topicF1=computePRF(topicTp, topicFp, topicFn)
 		print("Topic %s (%d articles), Precision: %s, Recall: %s, F1: %s" % (k, len(topicArticles[k]), topicPrec, topicRecall, topicF1))
-	print(topicArticles)
-	print(len(topicAcc))
-
 	return computePRF(tp, fp, fn)
