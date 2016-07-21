@@ -8,14 +8,19 @@ import utils
 from collections import OrderedDict
 import redis
 import pickle
+from py2neo import Graph
 
-def disambiguateEntity(currentEntity, candidates, weights,resolvedEntities):
+rds=redis.Redis(socket_timeout=5)
+def disambiguateEntity(currentEntity, candidates, weights,resolvedEntities, factorWeights, maxCount):
 	if len(candidates):
 		max_score=-0.1
 		best_candidate=None
 		for cand in candidates:
-			score=cand[1]["ss"]
 			candidate=cand[0]
+			ss=cand[1]["ss"]
+			associativeness=cand[1]["count"]/maxCount
+			coherence=computeCoherence(candidate, resolvedEntities, weights)
+			score=factorWeights['wss']*ss+factorWeights['wc']*coherence+factorWeights["wa"]*associativeness
 			if score>max_score and not isDisambiguation(candidate):
 				max_score=score
 				best_candidate=candidate
@@ -51,58 +56,57 @@ def shouldITry(maxi, s, other_id, current_id, weights):
         else:
                 return False
 
-def computeCoherence(newEntity, current_id, graph, w, max_score):
-        total=0.0
-        other_id=current_id-1
-        while other_id>0 and str(current_id-other_id) in w:
-                #print(other_id)
-                diff=current_id-other_id
-                weight=w[str(diff)]
-                if current_id<6:
-                        weight*=len(w)/(current_id-1) # Normalize for the cases where there less than N previous entities (only in the beginning)
-                        print("%d is the current ID, weight value is: %f" % (current_id, weight))
-                #weight=1/len(w)
-                if diff==1 or shouldITry(max_score, total, diff, current_id, w):
-#                       total+=computePairCoherence(graph.node[other_id]['eid'], newEntity.replace('http://dbpedia.org/resource/', ''), weight)
-                        total+=computeShortestPathCoherence(graph.node[other_id]['eid'], newEntity.replace('http://dbpedia.org/resource/', ''), weight)
-                        other_id-=1
-                else:
-                        break
-        return total
+def computeCoherence(newEntity, previousEntities, w):
+	total=0.0
+	current_id=len(previousEntities)+1
+	other_id=current_id-1
+	while other_id>0 and str(current_id-other_id) in w:
+		diff=current_id-other_id
+		weight=w[str(diff)]
+		max_score=0.0
+		if diff==1 or shouldITry(max_score, total, diff, current_id, w):
+	#                       total+=computePairCoherence(graph.node[other_id]['eid'], newEntity.replace('http://dbpedia.org/resource/', ''), weight)
+			if previousEntities[str(other_id)]!='--NME--':
+				total+=computeShortestPathCoherence(previousEntities[str(other_id)], utils.normalizeURL(newEntity), weight)
+			other_id-=1
+		else:
+			break
+	return total
 
 def computeShortestPathCoherence(node1, node2, w):
-    """Connects to graph database, then creates and sends query to graph 
-    database. Returns the shortest path between two nodes.
-    Format: (67149)-[:'LINKS_TO']->(421)"""
+	"""Connects to graph database, then creates and sends query to graph 
+	database. Returns the shortest path between two nodes.
+	Format: (67149)-[:'LINKS_TO']->(421)"""
 
-    if node1.strip()==node2.strip():
-        print("It's the same thing: %s" % (node1))
-        return w
+	if node1.strip()==node2.strip():
+		return w
 
-    g = Graph()
-    q="MATCH path=shortestPath((m:Page {name:\"%s\"})-[LINKS_TO*1..10]-(n:Page {name:\"%s\"})) RETURN LENGTH(path) AS length, path, m, n" % (node1, node2)
+	fromCache=rds.get("%s:%s" % (node1, node2))
+	if fromCache:
+		return float(fromCache)*w
+	else:
+		g = Graph()
+		q="MATCH path=shortestPath((m:Page {name:\"%s\"})-[LINKS_TO*1..10]-(n:Page {name:\"%s\"})) RETURN LENGTH(path) AS length, path, m, n" % (node1, node2)
 
-    cursor=g.run(q)
-    path=None
-    for c in cursor:
-        path=c
+		cursor=g.run(q)
+		path=None
+		for c in cursor:
+			path=c
 
-#
-#    print(("\nShortest Path:", path))
-    if path:
-        return w/path["length"]
-    else:
-        return 0.0
-
-
+	#
+	#    print(("\nShortest Path:", path))
+		if path:
+			rds.set("%s:%s" % (node1, node2), 1/path["length"])
+			return w/path["length"]
+		else:
+			rds.set("%s:%s" % (node1, node2), 0.0)
+			return 0.0
 
 def generateCandidatesWithLOTUS(mention, minSize=10, maxSize=100):
-	rds=redis.Redis()
 	normalized=utils.normalizeURL(mention)
 	fromCache=rds.get("lotus:%s" % normalized)
 	if fromCache:
 		cands=pickle.loads(fromCache)
-		print("CACHED", mention, cands)
 	else:
 		cands=getCandidatesForLemma(mention, minSize, maxSize)
 		cands=cleanRedirects(cands)
@@ -126,8 +130,6 @@ def getCandidatesForLemma(lemma, min_size, max_size):
 		hits=hits + these_hits
 		if content["numhits"]>=min_size or len(lemma.split(' '))==1:
 			break
-		else:
-			print("%d hits so far, after the %s matching. We need more candidates..." % (content["numhits"], match))
 
 	subjects={}
 	for hit in hits:
@@ -167,37 +169,40 @@ def cleanRedirects(c):
 
 def computeWeights(n):
 	i=0
-	w=[]
+	w={}
+	total=n*(n+1)/2
 	while i<n:
-		w.append(1/n)
+		#w[str(i)]=1/n
+		w[str(i)]=(n-i)/total
 		i+=1
 	return w
 
-if __name__=='__main__':
-	topic='WAR_CIVIL_WAR'
-	fn=sys.argv[1]
+def run(fn, topic='WAR_CIVIL_WAR', factorWeights={'wss':0.4,'wc':0.4, 'wa':0.2}):
 	#articles=['1314testb Third']
-	articles=['1314testb Third', '1212testb GUNMEN', '1313testb Italy', '1304testb Turkey', '1305testb Three', '1332testb Burmese', '1317testb Moslem', '1266testb Government', '1267testb Burmese']
-	file = open(fn, "r")
+	topicsToArticles=pickle.load(open('topics.p', 'rb'))
+	articles=topicsToArticles[topic]
+	print(articles)
+	myFile = open(fn, "r")
 	minSize=20
 	maxSize=200
 	potential=0
 	total=0
-	N=5
+	N=10
 	weights=computeWeights(N)
 	resolvedEntities={}
-	w=open("aidaMyOutput.tsv", "w")
-	for line in file:
+	w=open("aidaMyOutput.tsv", "a")
+	for line in myFile:
 		line=line.strip()
 		for article in sorted(articles):
-			if re.search(article, line):
+			article=article.strip().split()[0]
+			if article in line:
 				lineArray=line.split('\t')
 				mention=lineArray[6]
 				goldLink=lineArray[1]
 				systemLink=lineArray[2]
 				candidates, maxCount=generateCandidatesWithLOTUS(mention, minSize, maxSize)
-				myLink=disambiguateEntity(mention, candidates, weights, resolvedEntities)
-				print(mention, goldLink, systemLink, myLink)
+				myLink=disambiguateEntity(mention, candidates, weights, resolvedEntities, factorWeights, maxCount)
+				resolvedEntities[str(len(resolvedEntities)+1)]=myLink
 				w.write("%s\t%s\n" % (line, myLink))
 				"""
 				if goldLink!='--NME--':
@@ -211,5 +216,9 @@ if __name__=='__main__':
 	utils.computeUpperBound(potential, total))
 				"""
 
-	p, r, f=utils.computeStats("aidaMyOutput.tsv", False)
-	print("Precision: %f, Recall: %f, F1-value: %f" % (p, r, f))
+	#p, r, f=utils.computeStats("aidaMyOutput.tsv", False)
+	#print("Precision: %f, Recall: %f, F1-value: %f" % (p, r, f))
+	#return f
+
+if __name__=='__main__':
+	run(sys.argv[1])
