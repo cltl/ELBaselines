@@ -1,9 +1,12 @@
 import utils
 
+#fn="aidaArticles.tsv"
+fn="aidaTopLevel.tsv"
+#fn="aidaLowLevel.tsv"
 print("########################### MY SYSTEM ######################")
-p, r, f=utils.computeStats("aidaMyOutput.tsv", False)
+p, r, f=utils.computeStats(fn, False)
 print("Precision: %f, Recall: %f, F1-value: %f" % (p, r, f))
 
 print("########################### AGDISTIS ######################")
-p, r, f=utils.computeStats("aidaMyOutput.tsv", True)
+p, r, f=utils.computeStats(fn, True)
 print("Precision: %f, Recall: %f, F1-value: %f" % (p, r, f))

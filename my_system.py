@@ -29,7 +29,7 @@ def maxCoherence(w, l):
 
 def disambiguateEntity(currentEntity, candidates, weights,resolvedEntities, factorWeights, maxCount):
 	if len(candidates):
-		max_score=0.00
+		max_score=0.4
 		aging_factor=0.1
 		best_candidate=None
 		for cand in candidates:
@@ -198,25 +198,34 @@ def computeWeights(n):
 	w={}
 	total=n*(n+1)/2
 	while i<n:
-		#w[str(i)]=1/n
-		w[str(i)]=(n-i)/total
+		w[str(i)]=1/n
+		#w[str(i)]=(n-i)/total
 		i+=1
 	return w
 
-def run(fn, topic='WAR_CIVIL_WAR', factorWeights={'wss':0.4,'wc':0.4, 'wa':0.1, 'wr': 0.1}):
+def run(inFile, outFile, pickleFile, topic='WAR_CIVIL_WAR', factorWeights={'wss':0.4,'wc':0.4, 'wa':0.1, 'wr': 0.1}, topicAgg=True):
 	#articles=['1314testb Third']
-	topicsToArticles=pickle.load(open('topics.p', 'rb'))
+	topicsToArticles=pickle.load(open(pickleFile, 'rb'))
 	articles=topicsToArticles[topic]
 	print(articles)
+	N=10
+	weights=computeWeights(N)
+	if topicAgg:
+		print("Running per topic")
+		runUnit(inFile, outFile, weights, articles, factorWeights)
+	else:
+		print("Running single articles")
+		for article in articles:
+			runUnit(inFile, outFile, weights, [article], factorWeights)
+
+def runUnit(fn, outFile, weights, articles, factorWeights):
 	myFile = open(fn, "r")
 	minSize=20
 	maxSize=200
 	potential=0
 	total=0
-	N=10
-	weights=computeWeights(N)
 	resolvedEntities={}
-	w=open("aidaMyOutput.tsv", "a")
+	w=open(outFile, "a")
 	for line in myFile:
 		line=line.strip()
 		for article in sorted(articles):
@@ -230,21 +239,7 @@ def run(fn, topic='WAR_CIVIL_WAR', factorWeights={'wss':0.4,'wc':0.4, 'wa':0.1, 
 				myLink, score=disambiguateEntity(mention, candidates, weights, resolvedEntities, factorWeights, maxCount)
 				resolvedEntities[str(len(resolvedEntities)+1)]=myLink
 				w.write("%s\t%f\t%s\n" % (line, score, myLink))
-				"""
-				if goldLink!='--NME--':
-					if utils.makeDbpedia(goldLink) in candidates:
-						potential+=1
-						print("It exists as %d-th candidate" % list(candidates.keys()).index(utils.makeDbpedia(goldLink)))
-				else:
-					potential+=1
-					print("There are %d candidates" % len(candidates))
-				total+=1
-	utils.computeUpperBound(potential, total))
-				"""
 
-	#p, r, f=utils.computeStats("aidaMyOutput.tsv", False)
-	#print("Precision: %f, Recall: %f, F1-value: %f" % (p, r, f))
-	#return f
 
 if __name__=='__main__':
 	run(sys.argv[1])
