@@ -8,7 +8,7 @@ import dis_agdistis
 import os
 import sys
 
-def run(corpus, myFile, topic, aggregateTopics):
+def run(corpus, myFile, topic, aggregatedTopics):
 	if not os.path.isfile(myFile):
 		entitiesNumber=0
 		with open(corpus, "r") as myCorpus:
@@ -46,11 +46,12 @@ def run(corpus, myFile, topic, aggregateTopics):
 						testB=True
 						line=line.strip()
 						articleInfo=line.split('\t')
-						currentArticle=articleInfo[0]
 						currentTopic=articleInfo[1]
-						if aggregateTopics and topic!=currentTopic:
+						print(topic, currentTopic)
+						if aggregatedTopics and topic!=currentTopic:
 							relevant=False
 						else:
+							currentArticle=articleInfo[0]
 							relevant=True
 							print("Article %s has topic %s." % (currentArticle, currentTopic))
 						if not aggregatedTopics:
@@ -93,16 +94,17 @@ def run(corpus, myFile, topic, aggregateTopics):
 			if registeredEntities<articleEntities:
 				print(registeredEntities, articleEntities)
 				sys.exit(0)
-			myXml=utils.composeText(allTokens)
-			da=dis_agdistis.disambiguate(myXml, "agdistis")
-			for agd_entity in sorted(da, key=lambda k: k['start']):
-				offset=str(agd_entity["start"])
-				agd_link=utils.normalizeURL(agd_entity["disambiguatedURL"])
-				goldlink=utils.checkRedirects(utils.normalizeURL(goldEntities[offset]))
-				mention=goldMentions[offset]
-				id=currentArticle + offset
-				v1,v2=utils.getRanks(goldlink, agd_link)
-				myConll+="%s\t%s\t%s\t%s\t%f\t%f\t%s\n" % (id, goldlink, agd_link, currentTopic, v1, v2, mention)
+			if currentArticle:
+				myXml=utils.composeText(allTokens)
+				da=dis_agdistis.disambiguate(myXml, "agdistis")
+				for agd_entity in sorted(da, key=lambda k: k['start']):
+					offset=str(agd_entity["start"])
+					agd_link=utils.normalizeURL(agd_entity["disambiguatedURL"])
+					goldlink=utils.checkRedirects(utils.normalizeURL(goldEntities[offset]))
+					mention=goldMentions[offset]
+					id=currentArticle + offset
+					v1,v2=utils.getRanks(goldlink, agd_link)
+					myConll+="%s\t%s\t%s\t%s\t%f\t%f\t%s\n" % (id, goldlink, agd_link, currentTopic, v1, v2, mention)
 
 		print(entitiesNumber)	
 		w=open(myFile, "a")
