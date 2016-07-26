@@ -9,7 +9,7 @@ import os
 import sys
 
 def run(corpus, myFile, topic, aggregatedTopics):
-	if not os.path.isfile(myFile):
+	if not os.path.isfile(myFile) or aggregatedTopics:
 		entitiesNumber=0
 		with open(corpus, "r") as myCorpus:
 			currentArticle=""
@@ -19,6 +19,12 @@ def run(corpus, myFile, topic, aggregatedTopics):
 			articleEntities=0
 			registeredEntities=0
 			relevant=False
+			offset=0
+			tid=1
+			allTokens={}
+			goldEntities={}
+			goldMentions={}
+			print("Topic is %s" % topic)
 			for line in myCorpus:
 				if line.startswith("-DOCSTART-"):
 					if 'testb' in line:
@@ -30,26 +36,26 @@ def run(corpus, myFile, topic, aggregatedTopics):
 							if registeredEntities<articleEntities:
 								print(registeredEntities, articleEntities)
 								sys.exit(0)
-							articleEntities=0
-							registeredEntities=0
-							myXml=utils.composeText(allTokens)
-							da=dis_agdistis.disambiguate(myXml, "agdistis")
-							for agd_entity in sorted(da, key=lambda k: k['start']):
-								offset=str(agd_entity["start"])
-								agd_link=utils.normalizeURL(agd_entity["disambiguatedURL"])
-								goldlink=utils.checkRedirects(utils.normalizeURL(goldEntities[offset]))
-								id=currentArticle + offset
-								mention=goldMentions[offset]
-								v1,v2=utils.getRanks(goldlink, agd_link)
-								print(v1, v2)
-								myConll+="%s\t%s\t%s\t%s\t%f\t%f\t%s\n" % (id, goldlink, agd_link, currentTopic, v1, v2, mention)
+							if not aggregatedTopics:
+								articleEntities=0
+								registeredEntities=0
+								myXml=utils.composeText(allTokens)
+								da=dis_agdistis.disambiguate(myXml, "agdistis")
+								for agd_entity in sorted(da, key=lambda k: k['start']):
+									offset=str(agd_entity["start"])
+									agd_link=utils.normalizeURL(agd_entity["disambiguatedURL"])
+									goldlink=utils.checkRedirects(utils.normalizeURL(goldEntities[offset]))
+									id=currentArticle + offset
+									mention=goldMentions[offset]
+									v1,v2=utils.getRanks(goldlink, agd_link)
+									myConll+="%s\t%s\t%s\t%s\t%f\t%f\t%s\n" % (id, goldlink, agd_link, currentTopic, v1, v2, mention)
 						testB=True
 						line=line.strip()
 						articleInfo=line.split('\t')
 						currentTopic=articleInfo[1]
-						print(topic, currentTopic)
 						if aggregatedTopics and topic!=currentTopic:
 							relevant=False
+							currentArticle=''
 						else:
 							currentArticle=articleInfo[0]
 							relevant=True
@@ -94,7 +100,9 @@ def run(corpus, myFile, topic, aggregatedTopics):
 			if registeredEntities<articleEntities:
 				print(registeredEntities, articleEntities)
 				sys.exit(0)
-			if currentArticle:
+			if currentArticle or aggregatedTopics:
+				if aggregatedTopics:
+					currentTopic=topic
 				myXml=utils.composeText(allTokens)
 				da=dis_agdistis.disambiguate(myXml, "agdistis")
 				for agd_entity in sorted(da, key=lambda k: k['start']):
@@ -104,11 +112,10 @@ def run(corpus, myFile, topic, aggregatedTopics):
 					mention=goldMentions[offset]
 					id=currentArticle + offset
 					v1,v2=utils.getRanks(goldlink, agd_link)
+					print(v1,v2)
 					myConll+="%s\t%s\t%s\t%s\t%f\t%f\t%s\n" % (id, goldlink, agd_link, currentTopic, v1, v2, mention)
 
 		print(entitiesNumber)	
-		w=open(myFile, "a")
-		w.write(myConll)
-	p, r, f1=utils.computeStats(myFile)
-	print("Precision: %f, Recall: %f, F1-value: %f" % (p, r, f1))
+		with open(myFile, "a") as w:
+			w.write(myConll)
 

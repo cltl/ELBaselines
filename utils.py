@@ -71,6 +71,8 @@ def getRank(e):
 			print("Not cached: %f for %s" % (v, e))
 			rds.set("rank:%s" % e, v)
 			return v
+		print("Issue!!! " + elink)
+		return 0.0
 
 def usingSplit2(line, _len=len):
         words = line.split()
@@ -178,6 +180,7 @@ def computeStats(filename, thirdParty=True, rankAnalysis=True, topicAnalysis=Tru
 		s=sfPieces[0].strip()
 		currentArticle=s[s.find("(")+1:s.find(")")]
 		topicArticles[currentTopic].add(currentArticle)
+		print(system.lower(), gold.lower())
 		if system.lower() in nones:
 			systemNils+=1
 		if gold.lower() in nones:
@@ -224,7 +227,8 @@ def computeStats(filename, thirdParty=True, rankAnalysis=True, topicAnalysis=Tru
 		cntr=Counter(v)
 		topicTp=cntr['tp']
 		topicFn=cntr['fn']
-		topicFp=cntr['fp']
+		topicFp=cntr['fp']	
+		print("TOPIC %s" % k)
 		topicPrec, topicRecall, topicF1=computePRF(topicTp, topicFp, topicFn)
 		print("Topic %s (%d articles), Precision: %s, Recall: %s, F1: %s" % (k, len(topicArticles[k]), topicPrec, topicRecall, topicF1))
 	return computePRF(tp, fp, fn)
