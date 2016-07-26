@@ -17,21 +17,24 @@ if __name__=="__main__":
 	myFile=sys.argv[2]
 	if not os.path.isfile(myFile):
 		myConll=""
+		corpus=corpus.strip('/')
 		for file in os.listdir(corpus):
 			if not file.endswith(".xml") and not file.endswith(".naf"):
 				continue
 			print(file)
-			filename=corpus.strip('/') + '/' + file
-			myXml, entities=utils.naf2inlineEntities(filename, True)
+			filename=corpus + '/' + file
+			myXml, entities, mentions=utils.naf2inlineEntities(filename, True)
 			da=dis_agdistis.disambiguate(myXml, "agdistis")
 			for agd_entity in da:
 				offset=str(agd_entity["start"])
 				agd_link=utils.normalizeURL(str(agd_entity["disambiguatedURL"]))
 				goldlink=utils.checkRedirects(utils.normalizeURL(str(entities[offset])))
 				id=file + offset
-				myConll+="%s\t%s\t%s\n" % (id, goldlink, agd_link)
+				v1,v2=utils.getRanks(goldlink, agd_link)
+				mention=mentions[offset]
+				myConll+="%s\t%s\t%s\t%s\t%f\t%f\t%s\n" % (id, goldlink, agd_link, corpus, v1, v2, mention)
 		w=open(myFile, "w")
 		w.write(myConll)
-	p, r, f1=utils.computePRF(myFile)
+	p, r, f1=utils.computeStats(myFile)
 	
 	print("Precision: %f, Recall: %f, F1-value: %f" % (p, r, f1))

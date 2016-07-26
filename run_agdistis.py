@@ -8,13 +8,7 @@ import dis_agdistis
 import os
 import sys
 
-if __name__=="__main__":
-	if len(sys.argv)<3:
-		print("Not enough arguments!!!")
-		print("python run_conll.py {CORPUS/PATH} {FILENAME.TSV}")
-		sys.exit(1)
-	corpus=sys.argv[1]
-	myFile=sys.argv[2]
+def run(corpus, myFile, topic, aggregateTopics):
 	if not os.path.isfile(myFile):
 		entitiesNumber=0
 		with open(corpus, "r") as myCorpus:
@@ -24,6 +18,7 @@ if __name__=="__main__":
 			openEntity=False
 			articleEntities=0
 			registeredEntities=0
+			relevant=False
 			for line in myCorpus:
 				if line.startswith("-DOCSTART-"):
 					if 'testb' in line:
@@ -53,15 +48,20 @@ if __name__=="__main__":
 						articleInfo=line.split('\t')
 						currentArticle=articleInfo[0]
 						currentTopic=articleInfo[1]
-						print("Article %s has topic %s." % (currentArticle, currentTopic))
-						offset=0
-						tid=1
-						allTokens={}
-						goldEntities={}
-						goldMentions={}
+						if aggregateTopics and topic!=currentTopic:
+							relevant=False
+						else:
+							relevant=True
+							print("Article %s has topic %s." % (currentArticle, currentTopic))
+						if not aggregatedTopics:
+							offset=0
+							tid=1
+							allTokens={}
+							goldEntities={}
+							goldMentions={}
 					else:
 						testB=False
-				elif testB:
+				elif testB and relevant:
 					tokenInfo=line.split('\t')
 					text=tokenInfo[0]
 					if tokenInfo[1].strip()!='I' and openEntity is True:
@@ -105,7 +105,8 @@ if __name__=="__main__":
 				myConll+="%s\t%s\t%s\t%s\t%f\t%f\t%s\n" % (id, goldlink, agd_link, currentTopic, v1, v2, mention)
 
 		print(entitiesNumber)	
-		w=open(myFile, "w")
+		w=open(myFile, "a")
 		w.write(myConll)
 	p, r, f1=utils.computeStats(myFile)
 	print("Precision: %f, Recall: %f, F1-value: %f" % (p, r, f1))
+

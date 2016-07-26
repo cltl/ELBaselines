@@ -100,12 +100,14 @@ def getStartEndEntityTokens(entity, myParser):
 	for ref in entity.get_references():
 		terms=ref.get_span().get_span_ids()
 	tokens=[]
+	mention=''
 	for termId in terms:
 		termObject=myParser.get_term(termId)
 		for tokenId in termObject.get_span().get_span_ids():
 			tokens.append(int(tokenId))
-		
-	return min(tokens), max(tokens)
+			mention+=myParser.get_token(tokenId).get_text() + ' '
+
+	return min(tokens), max(tokens), mention
 
 def naf2inlineEntities(filename, overlap=False):
 	myParser=KafNafParser(filename)
@@ -117,16 +119,18 @@ def naf2inlineEntities(filename, overlap=False):
 
 	pastEntityTerms=[]
 	goldEntities={}
+	mentions={}
 	for entity in myParser.get_entities():
-		mini, maxi = getStartEndEntityTokens(entity, myParser)
+		mini, maxi, mention = getStartEndEntityTokens(entity, myParser)
 		if overlap or (mini not in pastEntityTerms and maxi not in pastEntityTerms):
 			allTokens[str(mini)]['text'] = '<entity>' + allTokens[str(mini)]['text']
 			allTokens[str(maxi)]['text'] = allTokens[str(maxi)]['text'] + '</entity>'
 			pastEntityTerms.append(maxi)
 			pastEntityTerms.append(mini)
+			mentions[str(allTokens[str(mini)]["offset"])]=mention.strip()
 			for extRef in entity.get_external_references():
 				goldEntities[str(allTokens[str(mini)]["offset"])]= extRef.get_reference()
-	return composeText(allTokens), goldEntities
+	return composeText(allTokens), goldEntities, mentions
 
 def normalizeURL(s):
 	if s:
