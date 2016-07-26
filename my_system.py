@@ -5,7 +5,7 @@ import urllib.request
 import requests
 import Levenshtein
 import utils
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 import redis
 import pickle
 from py2neo import Graph
@@ -27,7 +27,17 @@ def maxCoherence(w, l):
 		c+=1
 	return m
 
-def disambiguateEntity(currentEntity, candidates, weights,resolvedEntities, factorWeights, maxCount):
+def reread(resolvedMentions, entities, start, allCandidates, allMentions, weights, factorWeights, maxCount):
+	while start<=len(entities):
+		mention=allMentions[str(start)]
+		allCandidates[str(start)]=moreLocalCandidates(mention, resolvedMentions, allCandidates[str(start)])
+		myLink, score=disambiguateEntity(allCandidates[str(start)], weights, entities, factorWeights, maxCount)
+		print(entities[str(start)], myLink)
+		entities[str(start)]=myLink
+		start+=1
+	return entities
+
+def disambiguateEntity(candidates, weights,resolvedEntities, factorWeights, maxCount):
 	if len(candidates):
 		max_score=0.4
 		aging_factor=0.1
@@ -45,9 +55,11 @@ def disambiguateEntity(currentEntity, candidates, weights,resolvedEntities, fact
 				age=len(resolvedEntities)+1-lastId
 				recency=(1-aging_factor)**age
 			score=factorWeights['wss']*ss+factorWeights['wc']*coherence+factorWeights["wa"]*associativeness+factorWeights['wr']*recency
+			print("%s\t%f\tss:%f, coh:%f, assoc:%f, recency:%f" % (candidate, score, ss, coherence, associativeness, recency))
 			if score>max_score and not isDisambiguation(candidate):
 				max_score=score
 				best_candidate=candidate
+		print("BEST CANDIDATE: %s" % best_candidate)
 		return utils.normalizeURL(best_candidate), max_score
 	else:
 		return "--NME--", 1.0
@@ -127,6 +139,39 @@ def computeShortestPathCoherence(node1, node2, w):
 			rds.set("%s:%s" % (node1, node2), 0.0)
 			rds.set("%s:%s" % (node2, node1), 0.0)
 			return 0.0
+
+
+def is_abbrev(abbrev, text):
+
+    abbrev=abbrev.replace('.', '')
+    abbrev=abbrev.lower()
+    text=text.lower()
+    words=text.split()
+    if not abbrev:
+        return True
+    if abbrev and not text:
+        return False
+    if abbrev[0]!=text[0]:
+        return False
+    else:
+        return (is_abbrev(abbrev[1:],' '.join(words[1:])) or
+                any(is_abbrev(abbrev[1:],text[i+1:])
+                    for i in range(len(words[0]))))
+
+def moreLocalCandidates(m, previous, candidates):
+	for pm, pl in previous.items():
+		print(m, pm)
+		if is_abbrev(m, pm):
+			for prevLink in previous[pm]:
+				prevLink=utils.makeDbpedia(prevLink)
+				print("Add %s for %s?" % (prevLink, m))
+				if noCandidate(prevLink, candidates):
+					print("YES")
+					candidates.append(tuple([prevLink, {"ss": 1.0, "count": 0.0}]))
+	return candidates
+
+def noCandidate(newCand, cands):
+	return not any(newCand==c1 for c1,c2 in cands)
 
 def generateCandidatesWithLOTUS(mention, minSize=10, maxSize=100):
 	normalized=utils.normalizeURL(mention)
@@ -225,7 +270,12 @@ def runUnit(fn, outFile, weights, articles, factorWeights):
 	potential=0
 	total=0
 	resolvedEntities={}
+	resolvedMentions=defaultdict(list)
 	w=open(outFile, "a")
+	allCandidates={}
+	allMentions={}
+	iterations=2
+	lines={}
 	for line in myFile:
 		line=line.strip()
 		for article in sorted(articles):
@@ -236,10 +286,27 @@ def runUnit(fn, outFile, weights, articles, factorWeights):
 				goldLink=lineArray[1]
 				systemLink=lineArray[2]
 				candidates, maxCount=generateCandidatesWithLOTUS(mention, minSize, maxSize)
-				myLink, score=disambiguateEntity(mention, candidates, weights, resolvedEntities, factorWeights, maxCount)
+				candidates=moreLocalCandidates(mention, resolvedMentions, candidates)
+				print("###################################################################################")
+				print("RESOLVING %s" % mention)
+				print("###################################################################################")
+				allCandidates[str(len(resolvedEntities)+1)]=candidates
+				allMentions[str(len(resolvedEntities)+1)]=mention
+				myLink, score=disambiguateEntity(candidates, weights, resolvedEntities, factorWeights, maxCount)
+				lines[str(len(resolvedEntities)+1)]=line
 				resolvedEntities[str(len(resolvedEntities)+1)]=myLink
-				w.write("%s\t%f\t%s\n" % (line, score, myLink))
-
-
+				resolvedMentions[mention].append(myLink)
+	iterations-=1
+	while iterations>0:
+		print("###################################################################################")
+		print("###################################################################################")
+		print("###################################################################################")
+		print("REREADING..........")
+		start=1
+		resolvedEntities=reread(resolvedMentions,resolvedEntities,start, allCandidates, allMentions, weights, factorWeights, maxCount)
+		while start<=len(resolvedEntities):
+			w.write("%s\t%f\t%s\n" % (lines[str(start)], 0.0, resolvedEntities[str(start)]))
+			start+=1
+		iterations-=1
 if __name__=='__main__':
 	run(sys.argv[1])

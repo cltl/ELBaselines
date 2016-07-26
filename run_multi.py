@@ -40,6 +40,7 @@ if __name__=='__main__':
 			else:
 				run_agdistis.run(inFile, midFile, topic, aggregateTopics)
 			runs+=1
+		break
 	if sys.argv[2]=='my': # MY SYSTEM
 		p, r, f=utils.computeStats(outFile, False)
 	else: # AGDISTIS
