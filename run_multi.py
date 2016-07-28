@@ -21,10 +21,12 @@ if __name__=='__main__':
 		pickleFile='topics/topicsLow.p'
 		if sys.argv[1]!='low':
 			aggregateTopics=False
-			midFile='extraFullSingle.tsv'
+			outFile='aidaSingleArticles.tsv'
+			#midFile='extraFullSingle.tsv'
+	#topics=['DOMESTIC_POLITICS']
 	total=1
 	start = time.time()
-	factorWeights={'wc':0.5,'wss': 0.4, 'wa': 0.05, 'wr':0.05}
+	factorWeights={'wc':0.55,'wss': 0.35, 'wa': 0.05, 'wr':0.05}
 
 	if sys.argv[2]=='my' and os.path.exists(outFile):
 		os.remove(outFile)
@@ -40,7 +42,6 @@ if __name__=='__main__':
 			else:
 				run_agdistis.run(inFile, midFile, topic, aggregateTopics)
 			runs+=1
-		break
 	if sys.argv[2]=='my': # MY SYSTEM
 		p, r, f=utils.computeStats(outFile, False)
 	else: # AGDISTIS

@@ -8,9 +8,49 @@ from KafNafParserPy import *
 import redis
 from SPARQLWrapper import SPARQLWrapper, JSON
 from collections import defaultdict, Counter
+import ast
+import subprocess
 
 sparql = SPARQLWrapper("http://dbpedia.org/sparql")
 nones=["none", "nil", "--nme--"]
+
+def obtain_view(entity, date='2008-01-01', debug=False):
+    """
+
+    >>> obtain_view('France', '2015-07-01')
+    8920
+
+    """
+    result = 0
+
+    for element, replace in [('(', '\('),
+                             (')', '\)'),
+                             ('&', '\&'),
+                             ("'", "")]:
+        entity = entity.replace(element, replace)
+
+    date_for_command = date.replace('-', '')
+    command = 'node get_views.js {entity} {date_for_command} {date_for_command}'.format(
+        **locals())
+
+    try:
+        output = subprocess.check_output(command, shell=True)
+        output = output.decode('utf-8')
+        views = ast.literal_eval(output)
+    except subprocess.CalledProcessError:
+        print('ERROR', command)
+        views = {}
+
+    if date in views:
+        result = sum(views.values())
+
+    if debug:
+        print()
+        print(command)
+        print(result)
+        input('continue?')
+
+    return result
 
 def computeUpperBound(potential, total):
 	print("Upper bound: %f (%d out of %d surface forms" % (potential/total, potential, total))
@@ -68,10 +108,8 @@ def getRank(e):
 
 		for result in results["results"]["bindings"]:
 			v=float(result["v"]["value"])
-			print("Not cached: %f for %s" % (v, e))
 			rds.set("rank:%s" % e, v)
 			return v
-		print("Issue!!! " + elink)
 		return 0.0
 
 def usingSplit2(line, _len=len):
@@ -162,6 +200,8 @@ def computeStats(filename, thirdParty=True, rankAnalysis=True, topicAnalysis=Tru
 	systemPopular=0
 	systemRank=0.0
 	goldRank=0.0
+	totalCorrect=0
+	totalWrong=0
 	aggregated_wrong={}
 	aggregated_correct={}
 	topicAcc=defaultdict(list)
@@ -180,7 +220,6 @@ def computeStats(filename, thirdParty=True, rankAnalysis=True, topicAnalysis=Tru
 		s=sfPieces[0].strip()
 		currentArticle=s[s.find("(")+1:s.find(")")]
 		topicArticles[currentTopic].add(currentArticle)
-		print(system.lower(), gold.lower())
 		if system.lower() in nones:
 			systemNils+=1
 		if gold.lower() in nones:
@@ -192,13 +231,14 @@ def computeStats(filename, thirdParty=True, rankAnalysis=True, topicAnalysis=Tru
                                 aggregated_correct[gold.lower()]+=1
 			else:
 				aggregated_correct[gold.lower()]=1
+			totalCorrect+=1
 		else:
 			if system.lower() not in nones:
 				fp+=1
-				topicAcc[currentTopic].append('fp');
+				topicAcc[currentTopic].append('fp')
 			if gold.lower() not in nones:
 				fn+=1
-				topicAcc[currentTopic].append('fn');
+				topicAcc[currentTopic].append('fn')
 			if gold.lower() in aggregated_wrong:
 				aggregated_wrong[gold.lower()]+=1
 			else:
@@ -219,8 +259,10 @@ def computeStats(filename, thirdParty=True, rankAnalysis=True, topicAnalysis=Tru
 	print("System rank total: %f. Gold rank total: %f." % (systemRank, goldRank))
 	aggc = sorted(aggregated_correct.items(), key=lambda k: k[1], reverse=True)
 	print("CORRECT:",aggc[:10])
+	print("Total %d correct cases" % totalCorrect)
 	aggw = sorted(aggregated_wrong.items(), key=lambda k: k[1], reverse=True)
 	print("WRONG:",aggw[:10])
+	print("Total %d wrong cases" % totalWrong)
 	print("%d entities. %d gold nils, %d system nils" % (lenEnt, goldNils, systemNils))
 
 	for k,v in topicAcc.items():

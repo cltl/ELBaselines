@@ -11,11 +11,11 @@ import pickle
 from py2neo import Graph
 
 rds=redis.Redis(socket_timeout=5)
-def getPreviousOccurrence(c, entities):
-	eid=len(entities)
+def getPreviousOccurrence(c, entities, eid):
 	while eid>0:
-		if entities[str(eid)]==c:
-			return eid
+		if str(eid) in entities:
+			if entities[str(eid)]==c:
+				return eid
 		eid-=1
 	return -1
 
@@ -27,21 +27,31 @@ def maxCoherence(w, l):
 		c+=1
 	return m
 
-def reread(resolvedMentions, entities, start, allCandidates, allMentions, weights, factorWeights, maxCount):
+def reread(resolvedMentions, entities, start, allCandidates, allMentions, weights, factorWeights):
+	scores={}
 	while start<=len(entities):
 		mention=allMentions[str(start)]
 		allCandidates[str(start)]=moreLocalCandidates(mention, resolvedMentions, allCandidates[str(start)])
-		myLink, score=disambiguateEntity(allCandidates[str(start)], weights, entities, factorWeights, maxCount)
-		print(entities[str(start)], myLink)
+		#print("############################################## Resolving " + mention)
+		maxCount=getMaxCount(allCandidates[str(start)])
+		myLink, score=disambiguateEntity(allCandidates[str(start)], weights, entities, factorWeights, maxCount, start)
+		#print()
+		#print("########################### BEST: %s. Score: %f" % (myLink, score))
+		#print()
 		entities[str(start)]=myLink
-		start+=1
-	return entities
+		scores[str(start)]=score
 
-def disambiguateEntity(candidates, weights,resolvedEntities, factorWeights, maxCount):
+		start+=1
+	return entities, scores
+
+def disambiguateEntity(candidates, weights,resolvedEntities, factorWeights, maxCount, currentId):
 	if len(candidates):
-		max_score=0.4
-		aging_factor=0.1
+		max_score=0.35
+		limit=0.35
+		aging_factor=0.01
 		best_candidate=None
+		if currentId in resolvedEntities:
+			del resolvedEntities[str(currentId)]
 		for cand in candidates:
 			candidate=cand[0]
 			ss=cand[1]["ss"]
@@ -49,17 +59,17 @@ def disambiguateEntity(candidates, weights,resolvedEntities, factorWeights, maxC
 #			normalizationFactor=maxCoherence(weights, min(10,len(resolvedEntities)))
 			normalizationFactor=1.0
 			coherence=computeCoherence(candidate, resolvedEntities, weights)/normalizationFactor
-			lastId=getPreviousOccurrence(candidate, resolvedEntities)
+			lastId=getPreviousOccurrence(utils.normalizeURL(candidate), resolvedEntities, currentId-1)
 			recency=0.0
 			if lastId>-1:				
-				age=len(resolvedEntities)+1-lastId
+				age=abs(currentId-lastId)
 				recency=(1-aging_factor)**age
-			score=factorWeights['wss']*ss+factorWeights['wc']*coherence+factorWeights["wa"]*associativeness+factorWeights['wr']*recency
-			print("%s\t%f\tss:%f, coh:%f, assoc:%f, recency:%f" % (candidate, score, ss, coherence, associativeness, recency))
-			if score>max_score and not isDisambiguation(candidate):
+			#temporalPopularity=cand[1]["tp"]
+			score=factorWeights['wss']*ss+factorWeights['wc']*coherence+factorWeights["wa"]*associativeness+factorWeights['wr']*recency#+factorWeights['wt']*temporalPopularity
+			#print("%s\tSCORE: %f\tSS: %f\tCoh: %f\tAssoc: %f\tRecency: %f" % (cand[0], score, ss, coherence, associativeness, recency))
+			if score>limit and (score>max_score or (score==max_score and len(candidate)<len(best_candidate))) and not isDisambiguation(candidate):
 				max_score=score
 				best_candidate=candidate
-		print("BEST CANDIDATE: %s" % best_candidate)
 		return utils.normalizeURL(best_candidate), max_score
 	else:
 		return "--NME--", 1.0
@@ -69,11 +79,12 @@ def isDisambiguation(c):
         l=len(get_dbpedia_results(query))
         return l
 
+
+
 def get_dbpedia_results(query):
 	q = {'query': query, 'format': 'json'}
 	s='http://dbpedia.org/sparql'
 	url = s + '?' + urllib.parse.urlencode(q)
-	#print url
 	r = requests.get(url=url)
 	try:
         	page = r.json()
@@ -97,12 +108,12 @@ def computeCoherence(newEntity, previousEntities, w):
 	current_id=len(previousEntities)+1
 	other_id=current_id-1
 	while other_id>0 and str(current_id-other_id) in w:
-		diff=current_id-other_id
+		diff=abs(current_id-other_id)
 		weight=w[str(diff)]
 		max_score=0.0
 		if diff==1 or shouldITry(max_score, total, diff, current_id, w):
 	#                       total+=computePairCoherence(graph.node[other_id]['eid'], newEntity.replace('http://dbpedia.org/resource/', ''), weight)
-			if previousEntities[str(other_id)]!='--NME--':
+			if str(other_id) in previousEntities and previousEntities[str(other_id)]!='--NME--':
 				total+=computeShortestPathCoherence(previousEntities[str(other_id)], utils.normalizeURL(newEntity), weight)
 			other_id-=1
 		else:
@@ -130,7 +141,6 @@ def computeShortestPathCoherence(node1, node2, w):
 			path=c
 
 	#
-	#    print(("\nShortest Path:", path))
 		if path:
 			rds.set("%s:%s" % (node1, node2), 1/path["length"])
 			rds.set("%s:%s" % (node2, node1), 1/path["length"])
@@ -158,20 +168,45 @@ def is_abbrev(abbrev, text):
                 any(is_abbrev(abbrev[1:],text[i+1:])
                     for i in range(len(words[0]))))
 
+def isEnoughSubset(small, big):
+	return small in big and small!=big
+
 def moreLocalCandidates(m, previous, candidates):
 	for pm, pl in previous.items():
-		print(m, pm)
 		if is_abbrev(m, pm):
 			for prevLink in previous[pm]:
 				prevLink=utils.makeDbpedia(prevLink)
-				print("Add %s for %s?" % (prevLink, m))
-				if noCandidate(prevLink, candidates):
-					print("YES")
-					candidates.append(tuple([prevLink, {"ss": 1.0, "count": 0.0}]))
+				candidates.append(tuple([prevLink, {"ss": 1.0, "count": 0.0}]))
+		elif isEnoughSubset(m, pm):
+                        for prevLink in previous[pm]:
+                                prevLink=utils.makeDbpedia(prevLink)
+                                candidates.append(tuple([prevLink, {"ss": Levenshtein.ratio(m.lower(), pm.lower()), "count": 0.0}]))
 	return candidates
 
 def noCandidate(newCand, cands):
 	return not any(newCand==c1 for c1,c2 in cands)
+
+def appendViews(c):
+	m=0
+	for cand in c:
+		#print(cand)
+		view=utils.obtain_view(utils.normalizeURL(cand))
+		c[cand]['tp']=int(view)
+		if view>m:
+			m=view
+	for cand in c:
+		c[cand]["tp"]/=m
+	return c
+
+def getMaxCount(cands):	
+	if len(cands):
+		srt=sorted(cands, key=lambda x:x[1]["count"], reverse=True)[0]
+		maxCount=srt[1]["count"]
+		if maxCount==0:
+			maxCount=1.0
+	else:
+		maxCount=1
+	return maxCount
 
 def generateCandidatesWithLOTUS(mention, minSize=10, maxSize=100):
 	normalized=utils.normalizeURL(mention)
@@ -182,11 +217,14 @@ def generateCandidatesWithLOTUS(mention, minSize=10, maxSize=100):
 		cands=getCandidatesForLemma(mention, minSize, maxSize)
 		cands=cleanRedirects(cands)
 		rds.set("lotus:" + normalized, pickle.dumps(cands))
-	sortedCands=sorted(cands.items(), key=lambda x:x[1]["ss"], reverse=True)
-	try:
-		maxCount=sorted(cands.items(), key=lambda x:x[1]["count"], reverse=True)[0][1]["count"]
-	except:
-		maxCount=1
+#	cands=appendViews(cands)
+	sortedCands=sorted(cands.items(), key=lambda x:x[1]["count"], reverse=True)
+	#try:
+	maxCount=getMaxCount(cands.items())
+	#except:
+#		print("we have an issue")
+#		sys.exit(0)
+#		maxCount=1
 	return sortedCands, maxCount
 
 def getCandidatesForLemma(lemma, min_size, max_size):
@@ -194,7 +232,6 @@ def getCandidatesForLemma(lemma, min_size, max_size):
 	for match in ["phrase", "conjunct"]:
 		url="http://lotus.lodlaundromat.org/retrieve?size=" + str(max_size) + "&match=" + match + "&rank=psf&noblank=true&" + urllib.parse.urlencode({"string": lemma, "predicate": "label", "subject": "\"http://dbpedia.org/resource\""})
 		r = requests.get(url=url)
-		#print(r)
 		content = r.json()
 
 		these_hits=content["hits"]
@@ -204,7 +241,7 @@ def getCandidatesForLemma(lemma, min_size, max_size):
 
 	subjects={}
 	for hit in hits:
-		lev_sim=Levenshtein.ratio(hit["string"], lemma)
+		lev_sim=Levenshtein.ratio(hit["string"].lower(), lemma.lower())
 		if "Disambiguation" not in hit["subject"].lower() and "Category" not in hit["subject"]:
 			if hit["subject"] not in subjects:
 				#subjects[hit["subject"]]=hit["length"]*len(lemma.split())
@@ -215,28 +252,28 @@ def getCandidatesForLemma(lemma, min_size, max_size):
 	return subjects
 
 def cleanRedirects(c):
-        new_cands={}
-        for link in c:
-                if 'http://dbpedia.org/resource' not in link:
-                        continue
-                response = requests.get(link.replace('resource', 'page'))
-                if response.history:
-                # redirects
-                        new_link=response.url.replace('page', 'resource')
-                        #print(link, new_link)
-                        if new_link in new_cands:
-                                new_cands[new_link]["ss"]=max(new_cands[new_link]["ss"], c[link]["ss"])
-                                new_cands[new_link]["count"]+=1
-                        else:
-                                new_cands[new_link]={"ss": c[link]["ss"], "count": 1}
-                else:
-                        if response.status_code==200:
-                                if link in new_cands:
-                                        new_cands[link]["ss"]=max(new_cands[link]["ss"], c[link]["ss"])
-                                        new_cands[link]["count"]+=1
-                                else:
-                                        new_cands[link]={"ss": c[link]["ss"], "count": 1}
-        return new_cands
+	new_cands={}
+	for link in c:
+		if 'http://dbpedia.org/resource' not in link:
+			continue
+		query='select ?b where { <' + link + '> <http://dbpedia.org/ontology/wikiPageRedirects> ?b } LIMIT 1'
+		results=get_dbpedia_results(query)
+		if len(results):
+			for result in results:
+				newLink=result["b"]["value"]
+			#print(newLink)
+			if newLink in new_cands:
+				new_cands[newLink]["ss"]=max(new_cands[newLink]["ss"], c[link]["ss"])
+				new_cands[newLink]["count"]+=c[link]["count"]
+			else:
+				new_cands[newLink]={"ss": c[link]["ss"], "count": c[link]["count"]}
+		else:
+			if link in new_cands:
+				new_cands[link]["ss"]=max(new_cands[link]["ss"], c[link]["ss"])
+				new_cands[link]["count"]+=c[link]["count"]
+			else:
+				new_cands[link]={"ss": c[link]["ss"], "count": c[link]['count']}
+	return new_cands
 
 def computeWeights(n):
 	i=0
@@ -248,11 +285,12 @@ def computeWeights(n):
 		i+=1
 	return w
 
-def run(inFile, outFile, pickleFile, topic='WAR_CIVIL_WAR', factorWeights={'wss':0.4,'wc':0.4, 'wa':0.1, 'wr': 0.1}, topicAgg=True):
+def run(inFile, outFile, pickleFile, topic='WAR_CIVIL_WAR', factorWeights={'wss':0.5,'wc':0.4, 'wa':0.05, 'wr': 0.05, 'wt': 0.0}, topicAgg=True):
 	#articles=['1314testb Third']
 	topicsToArticles=pickle.load(open(pickleFile, 'rb'))
 	articles=topicsToArticles[topic]
 	print(articles)
+	#articles=['1215testb']
 	N=10
 	weights=computeWeights(N)
 	if topicAgg:
@@ -272,10 +310,13 @@ def runUnit(fn, outFile, weights, articles, factorWeights):
 	resolvedEntities={}
 	resolvedMentions=defaultdict(list)
 	w=open(outFile, "a")
+	outFileNoReread="noreread." + outFile
+	w2=open(outFileNoReread, "a")
 	allCandidates={}
 	allMentions={}
 	iterations=2
 	lines={}
+	print("RUN UNIT")
 	for line in myFile:
 		line=line.strip()
 		for article in sorted(articles):
@@ -287,26 +328,25 @@ def runUnit(fn, outFile, weights, articles, factorWeights):
 				systemLink=lineArray[2]
 				candidates, maxCount=generateCandidatesWithLOTUS(mention, minSize, maxSize)
 				candidates=moreLocalCandidates(mention, resolvedMentions, candidates)
-				print("###################################################################################")
-				print("RESOLVING %s" % mention)
-				print("###################################################################################")
-				allCandidates[str(len(resolvedEntities)+1)]=candidates
-				allMentions[str(len(resolvedEntities)+1)]=mention
-				myLink, score=disambiguateEntity(candidates, weights, resolvedEntities, factorWeights, maxCount)
-				lines[str(len(resolvedEntities)+1)]=line
-				resolvedEntities[str(len(resolvedEntities)+1)]=myLink
+				nextId=str(len(resolvedEntities)+1)
+				allCandidates[nextId]=candidates
+				allMentions[nextId]=mention
+				#print("############################################## Resolving " + mention)
+				myLink, score=disambiguateEntity(candidates, weights, resolvedEntities, factorWeights, maxCount, int(nextId))
+				#print()
+				#print("########################### BEST: %s. Score: %f" % (myLink, score))
+				#print()
+				lines[nextId]=line
+				resolvedEntities[nextId]=myLink
 				resolvedMentions[mention].append(myLink)
+				#print(line)
+				w2.write("%s\t%f\t%s\n" % (line, score, myLink))
 	iterations-=1
 	while iterations>0:
-		print("###################################################################################")
-		print("###################################################################################")
-		print("###################################################################################")
-		print("REREADING..........")
 		start=1
-		resolvedEntities=reread(resolvedMentions,resolvedEntities,start, allCandidates, allMentions, weights, factorWeights, maxCount)
-		while start<=len(resolvedEntities):
-			w.write("%s\t%f\t%s\n" % (lines[str(start)], 0.0, resolvedEntities[str(start)]))
-			start+=1
+		resolvedEntities, scores=reread(resolvedMentions,resolvedEntities,start, allCandidates, allMentions, weights, factorWeights)
+		if iterations==1:
+			while start<=len(resolvedEntities):
+				w.write("%s\t%f\t%s\n" % (lines[str(start)], scores[str(start)], resolvedEntities[str(start)]))
+				start+=1
 		iterations-=1
-if __name__=='__main__':
-	run(sys.argv[1])
