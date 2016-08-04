@@ -1,5 +1,6 @@
 #!/usr/bin/python
 
+
 # Filip Ilievski
 # June 2016
 
@@ -10,9 +11,21 @@ from SPARQLWrapper import SPARQLWrapper, JSON
 from collections import defaultdict, Counter
 import ast
 import subprocess
+from rdflib import Graph, URIRef
 
 sparql = SPARQLWrapper("http://dbpedia.org/sparql")
 nones=["none", "nil", "--nme--"]
+
+def getNIFEntities(gr):
+	qres = gr.query(
+	""" SELECT ?id ?mention ?start ?end
+	WHERE {
+		?id nif:anchorOf ?mention ;
+		nif:beginIndex ?start ;
+		nif:endIndex ?end .
+	} ORDER BY ?start
+	""")
+	return qres
 
 def obtain_view(entity, date='2008-01-01', debug=False):
     """
@@ -181,6 +194,9 @@ def normalizeURL(s):
 
 def makeDbpedia(x):
 	return "http://dbpedia.org/resource/" + x
+
+def makeVU():
+	return "http://vu.nl/resource/NIL"
 
 def computePRF(tp, fp, fn):
 	prec=tp/(tp+fp)

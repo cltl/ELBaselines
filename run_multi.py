@@ -26,10 +26,15 @@ if __name__=='__main__':
 	#topics=['DOMESTIC_POLITICS']
 	total=1
 	start = time.time()
-	factorWeights={'wc':0.55,'wss': 0.35, 'wa': 0.05, 'wr':0.05}
+	factorWeights={'wc':0.525,'wss': 0.325, 'wa': 0.05, 'wr':0.05, 'wt': 0.05}
+
+	import pickle
+	timePickle=pickle.load(open('200712_agg.p', 'rb'))
+	print("Pickle loaded")
 
 	if sys.argv[2]=='my' and os.path.exists(outFile):
 		os.remove(outFile)
+		os.remove('noreread.' + outFile)
 	elif sys.argv[2]!='my' and os.path.exists(midFile):
 		os.remove(midFile)
 	#topics=['WAR_CIVIL_WAR']
@@ -38,7 +43,7 @@ if __name__=='__main__':
 		while runs<=total:
 			print("Topic: %s. Starting run %d/%d" % (topic, runs, total))
 			if sys.argv[2]=='my':
-				my_system.run(midFile, outFile, pickleFile, topic, factorWeights, aggregateTopics)
+				my_system.run(midFile, outFile, pickleFile, topic, factorWeights, aggregateTopics, timePickle)
 			else:
 				run_agdistis.run(inFile, midFile, topic, aggregateTopics)
 			runs+=1

@@ -8,8 +8,10 @@ import utils
 from collections import OrderedDict, defaultdict
 import redis
 import pickle
-from py2neo import Graph
+import py2neo
+from rdflib import Graph, URIRef
 
+identityRelation = URIRef("http://www.w3.org/2005/11/its/rdf#taIdentRef")
 rds=redis.Redis(socket_timeout=5)
 def getPreviousOccurrence(c, entities, eid):
 	while eid>0:
@@ -146,10 +148,10 @@ def computeShortestPathCoherence(node1, node2, w):
 	if fromCache:
 		return float(fromCache)*w
 	else:
-		g = Graph()
+		gn = py2neo.Graph()
 		q="MATCH path=shortestPath((m:Page {name:\"%s\"})-[LINKS_TO*1..10]-(n:Page {name:\"%s\"})) RETURN LENGTH(path) AS length, path, m, n" % (node1, node2)
 
-		cursor=g.run(q)
+		cursor=gn.run(q)
 		path=None
 		for c in cursor:
 			path=c
@@ -302,71 +304,54 @@ def computeWeights(n):
 		i+=1
 	return w
 
-def run(inFile, outFile, pickleFile, topic='WAR_CIVIL_WAR', factorWeights={'wss':0.5,'wc':0.4, 'wa':0.05, 'wr': 0.05, 'wt': 0.0}, topicAgg=True, timePickle={}):
-	#articles=['1314testb Third']
-	topicsToArticles=pickle.load(open(pickleFile, 'rb'))
-	articles=topicsToArticles[topic]
-	print(articles)
-	#articles=['1215testb']
+def run(g, factorWeights={'wss':0.5,'wc':0.4, 'wa':0.05, 'wr': 0.05, 'wt': 0.0}, timePickle={}):
 	N=10
 	weights=computeWeights(N)
-	if topicAgg:
-		print("Running per topic")
-		runUnit(inFile, outFile, weights, articles, factorWeights, timePickle)
-	else:
-		print("Running single articles")
-		for article in articles:
-			runUnit(inFile, outFile, weights, [article], factorWeights, timePickle)
-
-def runUnit(fn, outFile, weights, articles, factorWeights, timePickle):
-	myFile = open(fn, "r")
 	minSize=20
 	maxSize=200
 	potential=0
 	total=0
 	resolvedEntities={}
 	resolvedMentions=defaultdict(list)
-	w=open(outFile, "a")
-	outFileNoReread="noreread." + outFile
-	w2=open(outFileNoReread, "a")
 	allCandidates={}
 	allMentions={}
+	originalIds={}
 	iterations=2
 	lines={}
-	print("RUN UNIT")
 	limitFirstTime=0.375
 	limitReread=0.54
-	for line in myFile:
-		line=line.strip()
-		for article in sorted(articles):
-			article=article.strip().split()[0]
-			if article in line:
-				lineArray=line.split('\t')
-				mention=lineArray[6]
-				goldLink=lineArray[1]
-				systemLink=lineArray[2]
-				candidates, maxCount=generateCandidatesWithLOTUS(mention, minSize, maxSize)
-				candidates=moreLocalCandidates(mention, resolvedMentions, candidates)
-				candidates=appendViews(candidates, timePickle)
-				nextId=str(len(resolvedEntities)+1)
-				allCandidates[nextId]=candidates
-				allMentions[nextId]=mention
-				#print("############################################## Resolving " + mention)
-				myLink, score=disambiguateEntity(candidates, weights, resolvedEntities, factorWeights, maxCount, int(nextId), limitFirstTime)
-				#print()
-				#print("########################### BEST: %s. Score: %f" % (myLink, score))
-				#print()
-				lines[nextId]=line
-				resolvedEntities[nextId]=myLink
-				resolvedMentions[mention].append(myLink)
-				#print(line)
-				w2.write("%s\t%f\t%s\n" % (line, score, myLink))
-	iterations-=1
+	qres=utils.getNIFEntities(g)
+	for row in qres:
+		mention=row['mention']
+		start=row['start']
+		systemLink=row['end']
+		entityId=row['id']
+		candidates, maxCount=generateCandidatesWithLOTUS(mention, minSize, maxSize)
+		candidates=moreLocalCandidates(mention, resolvedMentions, candidates)
+		candidates=appendViews(candidates, timePickle)
+		nextId=str(len(resolvedEntities)+1)
+		allCandidates[nextId]=candidates
+		allMentions[nextId]=mention
+		#print("############################################## Resolving " + mention)
+		myLink, score=disambiguateEntity(candidates, weights, resolvedEntities, factorWeights, maxCount, int(nextId), limitFirstTime)
+		#print()
+		#print("########################### BEST: %s. Score: %f" % (myLink, score))
+		#print()
+		originalIds[nextId]=entityId
+		resolvedEntities[nextId]=myLink
+		resolvedMentions[mention].append(myLink)
 	while iterations>0:
-		start=1
-		resolvedEntities, scores=reread(resolvedMentions,resolvedEntities,start, allCandidates, allMentions, weights, factorWeights, timePickle, limitReread)
-		if iterations==1:
-			while start<=len(resolvedEntities):
-				w.write("%s\t%f\t%s\n" % (lines[str(start)], scores[str(start)], resolvedEntities[str(start)]))
-				start+=1
 		iterations-=1
+		start=1
+		if iterations>0:
+			resolvedEntities, scores=reread(resolvedMentions,resolvedEntities,start, allCandidates, allMentions, weights, factorWeights, timePickle, limitReread)
+		else:
+			while start<=len(resolvedEntities):
+				link=resolvedEntities[str(start)]
+				if link=='--NME--':
+					link=utils.makeVU()
+				else:
+					link=utils.makeDbpedia(link)
+				g.add( (originalIds[str(start)], identityRelation, URIRef(link)) )
+				start+=1
+	return g
