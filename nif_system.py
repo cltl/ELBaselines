@@ -29,7 +29,7 @@ def maxCoherence(w, l):
 		c+=1
 	return m
 
-def reread(resolvedMentions, entities, start, allCandidates, allMentions, weights, factorWeights, timePickle, limit):
+def reread(resolvedMentions, entities, start, allCandidates, allMentions, weights, factorWeights, timePickle, limit, lastN, N):
 	scores={}
 	while start<=len(entities):
 		mention=allMentions[str(start)]
@@ -39,15 +39,16 @@ def reread(resolvedMentions, entities, start, allCandidates, allMentions, weight
 
 		#print("############################################## Resolving " + mention)
 		maxCount=getMaxCount(allCandidates[str(start)])
-		myLink, score=disambiguateEntity(candidates, weights, entities, factorWeights, maxCount, start, limit)
+		myLink, score=disambiguateEntity(candidates, weights, entities, factorWeights, maxCount, start, limit, lastN)
 		#print()
 		#print("########################### BEST: %s. Score: %f" % (myLink, score))
 		#print()
 		entities[str(start)]=myLink
 		scores[str(start)]=score
-
+		lastN.append(myLink)
+		lastN=lastN[N*(-1):]
 		start+=1
-	return entities, scores
+	return entities, scores, lastN
 
 def normalizeTPs(cands):
 	m=1
@@ -60,7 +61,7 @@ def normalizeTPs(cands):
 
 	return cands
 
-def disambiguateEntity(candidates, weights,resolvedEntities, factorWeights, maxCount, currentId, limit):
+def disambiguateEntity(candidates, weights,resolvedEntities, factorWeights, maxCount, currentId, limit, lastN):
 	if len(candidates):
 		max_score=limit
 		aging_factor=0.01
@@ -74,7 +75,7 @@ def disambiguateEntity(candidates, weights,resolvedEntities, factorWeights, maxC
 			associativeness=cand[1]["count"]/maxCount
 #			normalizationFactor=maxCoherence(weights, min(10,len(resolvedEntities)))
 			normalizationFactor=1.0
-			coherence=computeCoherence(candidate, resolvedEntities, weights)/normalizationFactor
+			coherence=computeCoherence(candidate, lastN, weights)/normalizationFactor
 			lastId=getPreviousOccurrence(utils.normalizeURL(candidate), resolvedEntities, currentId-1)
 			recency=0.0
 			if lastId>-1:				
@@ -95,7 +96,10 @@ def isDisambiguation(c):
         l=len(get_dbpedia_results(query))
         return l
 
-
+def existingURI(c):
+        query='select ?b where { <' + c + '> ?a ?b } LIMIT 1'
+        l=len(get_dbpedia_results(query))
+        return l
 
 def get_dbpedia_results(query):
 	q = {'query': query, 'format': 'json'}
@@ -119,21 +123,16 @@ def shouldITry(maxi, s, other_id, current_id, weights):
         else:
                 return False
 
-def computeCoherence(newEntity, previousEntities, w):
+def computeCoherence(newEntity, lastN, w):
 	total=0.0
-	current_id=len(previousEntities)+1
-	other_id=current_id-1
-	while other_id>0 and str(current_id-other_id) in w:
-		diff=abs(current_id-other_id)
-		weight=w[str(diff)]
-		max_score=0.0
-		if diff==1 or shouldITry(max_score, total, diff, current_id, w):
-	#                       total+=computePairCoherence(graph.node[other_id]['eid'], newEntity.replace('http://dbpedia.org/resource/', ''), weight)
-			if str(other_id) in previousEntities and previousEntities[str(other_id)]!='--NME--':
-				total+=computeShortestPathCoherence(previousEntities[str(other_id)], utils.normalizeURL(newEntity), weight)
-			other_id-=1
-		else:
-			break
+	compareTo=len(lastN)
+	counter=1
+	while counter<=compareTo:
+		weight=w[str(counter)]
+		otherEntity=lastN[(-1)*counter]
+		if otherEntity!='--NME--':
+			total+=computeShortestPathCoherence(otherEntity, utils.normalizeURL(newEntity), weight)
+		counter+=1
 	return total
 
 def computeShortestPathCoherence(node1, node2, w):
@@ -295,16 +294,16 @@ def cleanRedirects(c):
 	return new_cands
 
 def computeWeights(n):
-	i=0
+	i=1
 	w={}
 	total=n*(n+1)/2
-	while i<n:
+	while i<=n:
 		w[str(i)]=1/n
 		#w[str(i)]=(n-i)/total
 		i+=1
 	return w
 
-def run(g, factorWeights={'wss':0.5,'wc':0.4, 'wa':0.05, 'wr': 0.05, 'wt': 0.0}, timePickle={}):
+def run(g, factorWeights={'wss':0.5,'wc':0.4, 'wa':0.05, 'wr': 0.05, 'wt': 0.0}, timePickle={}, iterations=1, lastN=[]):
 	N=10
 	weights=computeWeights(N)
 	minSize=20
@@ -316,8 +315,6 @@ def run(g, factorWeights={'wss':0.5,'wc':0.4, 'wa':0.05, 'wr': 0.05, 'wt': 0.0},
 	allCandidates={}
 	allMentions={}
 	originalIds={}
-	iterations=2
-	lines={}
 	limitFirstTime=0.375
 	limitReread=0.54
 	qres=utils.getNIFEntities(g)
@@ -333,18 +330,20 @@ def run(g, factorWeights={'wss':0.5,'wc':0.4, 'wa':0.05, 'wr': 0.05, 'wt': 0.0},
 		allCandidates[nextId]=candidates
 		allMentions[nextId]=mention
 		#print("############################################## Resolving " + mention)
-		myLink, score=disambiguateEntity(candidates, weights, resolvedEntities, factorWeights, maxCount, int(nextId), limitFirstTime)
+		myLink, score=disambiguateEntity(candidates, weights, resolvedEntities, factorWeights, maxCount, int(nextId), limitFirstTime, lastN)
 		#print()
 		#print("########################### BEST: %s. Score: %f" % (myLink, score))
 		#print()
 		originalIds[nextId]=entityId
 		resolvedEntities[nextId]=myLink
 		resolvedMentions[mention].append(myLink)
+		lastN.append(myLink)
+		lastN=lastN[N*(-1):]
 	while iterations>0:
 		iterations-=1
 		start=1
 		if iterations>0:
-			resolvedEntities, scores=reread(resolvedMentions,resolvedEntities,start, allCandidates, allMentions, weights, factorWeights, timePickle, limitReread)
+			resolvedEntities, scores, lastN=reread(resolvedMentions,resolvedEntities,start, allCandidates, allMentions, weights, factorWeights, timePickle, limitReread, lastN, N)
 		else:
 			while start<=len(resolvedEntities):
 				link=resolvedEntities[str(start)]
@@ -354,4 +353,4 @@ def run(g, factorWeights={'wss':0.5,'wc':0.4, 'wa':0.05, 'wr': 0.05, 'wt': 0.0},
 					link=utils.makeDbpedia(link)
 				g.add( (originalIds[str(start)], identityRelation, URIRef(link)) )
 				start+=1
-	return g
+	return g, lastN

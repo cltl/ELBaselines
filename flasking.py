@@ -10,10 +10,10 @@ mimetype='application/x-turtle'
 
 w=open('flask.log', 'a')
 
-@app.route("/", methods = ['POST'])
-def run():
+@app.route("/<int:iterations>/<int:memory>", methods = ['POST'])
+def run(iterations, memory):
 	global num
-	print("Request %d came!" % num)
+	print("Request %d came! %d iterations, Memory: %r" % (num, iterations, memory>0))
 	num+=1
 	g=Graph()
 	inputRDF=request.stream.read()
@@ -23,7 +23,13 @@ def run():
 	factorWeights={'wc':0.525,'wss': 0.325, 'wa': 0.05, 'wr':0.05, 'wt': 0.05}
 	timePickle=pickle.load(open('200712_agg.p', 'rb'))
 
-	g=nif_system.run(g, factorWeights, timePickle)
+	global lastN
+	if memory>0:
+		g,lastN=nif_system.run(g, factorWeights, timePickle, iterations, lastN)
+	else:
+		lastN=[]
+		g,lastN=nif_system.run(g, factorWeights, timePickle, iterations, lastN)
+
 
 	outputRDF=g.serialize(format='turtle')
 	#for s,p,o in g.triples( (None, fullText, None) ):
@@ -34,6 +40,8 @@ def run():
 	return Response(outputRDF, mimetype=mimetype)
 
 if __name__ == "__main__":
-    global num
-    num=0
-    app.run()
+	global num
+	num=0
+	global lastN
+	lastN=[]
+	app.run()
