@@ -12,9 +12,46 @@ from collections import defaultdict, Counter
 import ast
 import subprocess
 from rdflib import Graph, URIRef
+import jsonrpclib
+from simplejson import loads
+server = jsonrpclib.Server("http://localhost:3456/")
+
+def tokensToOffsets(words, startToken, endToken):
+        return words[startToken][1]['CharacterOffsetBegin'], words[endToken][1]['CharacterOffsetEnd']
 
 sparql = SPARQLWrapper("http://dbpedia.org/sparql")
 nones=["none", "nil", "--nme--"]
+
+def getCorefChains(g):
+	documentText=getNIFString(g)
+	if not documentText.startswith("BADMINTON - WORLD GRAND PRIX RESULTS. BALI 1996-12-06 Results"):
+		result = loads(server.parse(documentText))
+		chains=[]
+		sentences=result['sentences']
+		if 'coref' in result:
+			coref=result['coref']
+			for chain in coref:
+				offsetChain=set()
+				for pair in chain:
+					for phrase in pair:
+						offsets=tokensToOffsets(sentences[phrase[1]]['words'], phrase[3], phrase[4]-1)
+						offsetChain.add(offsets)
+				chains.append(offsetChain)
+		return chains
+	else:
+		print("I am skipping this article, Filip.")
+		return []
+
+
+def getNIFString(gr):
+	qres = gr.query(
+	""" SELECT ?s
+	WHERE {
+		?x nif:isString ?s
+	} LIMIT 1
+	""")
+	for r in qres:
+		return r['s']
 
 def getNIFEntities(gr):
 	qres = gr.query(
@@ -195,8 +232,9 @@ def normalizeURL(s):
 def makeDbpedia(x):
 	return "http://dbpedia.org/resource/" + x
 
-def makeVU():
-	return "http://vu.nl/resource/NIL"
+def makeVU(x):
+	#return "null"
+	return "http://vu.nl/unknown/" + x.replace(" ", "_").replace('"', "")
 
 def computePRF(tp, fp, fn):
 	prec=tp/(tp+fp)

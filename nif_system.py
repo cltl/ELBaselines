@@ -9,7 +9,7 @@ from collections import OrderedDict, defaultdict
 import redis
 import pickle
 import py2neo
-from rdflib import Graph, URIRef
+from rdflib import Graph, URIRef, Literal
 
 identityRelation = URIRef("http://www.w3.org/2005/11/its/rdf#taIdentRef")
 rds=redis.Redis(socket_timeout=5)
@@ -34,12 +34,16 @@ def reread(resolvedMentions, entities, start, allCandidates, allMentions, weight
 	while start<=len(entities):
 		mention=allMentions[str(start)]
 		candidates=allCandidates[str(start)]
-		candidates=moreLocalCandidates(mention, resolvedMentions, candidates)
-		candidates=appendViews(candidates, timePickle)
+		candidates,special=moreLocalCandidates(mention, resolvedMentions, candidates, idToOffsets[str(start)], entities)
+		if not special:
+			candidates=appendViews(candidates, timePickle)
 
-		#print("############################################## Resolving " + mention)
-		maxCount=getMaxCount(allCandidates[str(start)])
-		myLink, score=disambiguateEntity(candidates, weights, entities, factorWeights, maxCount, start, limit, lastN)
+			#print("############################################## Resolving " + mention)
+			maxCount=getMaxCount(allCandidates[str(start)])
+			myLink, score=disambiguateEntity(candidates, weights, entities, factorWeights, maxCount, start, limit, lastN)
+		else:
+			myLink=special
+			score=1.0
 		#print()
 		#print("########################### BEST: %s. Score: %f" % (myLink, score))
 		#print()
@@ -64,7 +68,7 @@ def normalizeTPs(cands):
 def disambiguateEntity(candidates, weights,resolvedEntities, factorWeights, maxCount, currentId, limit, lastN):
 	if len(candidates):
 		max_score=limit
-		aging_factor=0.01
+		aging_factor=0.005
 		best_candidate=None
 		if currentId in resolvedEntities:
 			del resolvedEntities[str(currentId)]
@@ -83,7 +87,6 @@ def disambiguateEntity(candidates, weights,resolvedEntities, factorWeights, maxC
 				recency=(1-aging_factor)**age
 			temporalPopularity=cand[1]["tp"]
 			score=factorWeights['wss']*ss+factorWeights['wc']*coherence+factorWeights["wa"]*associativeness+factorWeights['wr']*recency+factorWeights['wt']*temporalPopularity
-			#print("%s\tSCORE: %f\tSS: %f\tCoh: %f\tAssoc: %f\tRecency: %f" % (cand[0], score, ss, coherence, associativeness, recency))
 			if score>limit and (score>max_score or (score==max_score and len(candidate)<len(best_candidate))) and not isDisambiguation(candidate):
 				max_score=score
 				best_candidate=candidate
@@ -130,7 +133,7 @@ def computeCoherence(newEntity, lastN, w):
 	while counter<=compareTo:
 		weight=w[str(counter)]
 		otherEntity=lastN[(-1)*counter]
-		if otherEntity!='--NME--':
+		if otherEntity!='--NME--' and 'http://vu.nl' not in otherEntity:
 			total+=computeShortestPathCoherence(otherEntity, utils.normalizeURL(newEntity), weight)
 		counter+=1
 	return total
@@ -191,17 +194,52 @@ def is_abbrev(abbrev, text):
 def isEnoughSubset(small, big):
 	return small in big and small!=big
 
-def moreLocalCandidates(m, previous, candidates):
-	for pm, pl in previous.items():
-		if is_abbrev(m, pm):
-			for prevLink in previous[pm]:
-				prevLinkDB=utils.makeDbpedia(prevLink)
-				candidates.append(tuple([prevLinkDB, {"ss": 1.0, "count": 0.0}]))
-		elif isEnoughSubset(m, pm):
-			for prevLink in previous[pm]:
-				prevLinkDB=utils.makeDbpedia(prevLink)
-				candidates.append(tuple([prevLinkDB, {"ss": Levenshtein.ratio(m.lower(), pm.lower()), "count": 0.0}]))
-	return candidates
+def getCorefentialEntities(current):
+	cos=[]
+	for c in chains:
+		if current in c:
+			for o in offsetsToIds:
+				if o in c and o!=current:
+					cos.append(o)
+	return cos
+
+def getLinks(corefs, candidates, resolvedEntities):
+	for c in corefs:
+		thisId=offsetsToIds[c]
+		prevLink=resolvedEntities[thisId]
+		if prevLink=='--NME--' or 'http://vu.nl' in prevLink:
+			return candidates, prevLink
+		else:
+			prevLinkDB=utils.makeDbpedia(prevLink)
+			candidates.append(tuple([prevLinkDB, {"ss": 1.0, "count": 0.0}]))
+	return candidates, None
+
+def moreLocalCandidates(m, previous, candidates, currentOffsets, resolvedEntities):
+	special=None
+	corefs=getCorefentialEntities(currentOffsets)
+	if len(corefs):
+		candidates, special=getLinks(corefs, candidates, resolvedEntities)
+	if special:
+		return candidates, special
+	else:
+		for pm, pl in previous.items():
+			if special:
+				break
+			if is_abbrev(m, pm):
+				for prevLink in previous[pm]:
+					#if prevLink=='--NME--':
+					#	special=utils.makeVU(m)
+					#	break
+					prevLinkDB=utils.makeDbpedia(prevLink)
+					candidates.append(tuple([prevLinkDB, {"ss": 1.0, "count": 0.0}]))
+			elif isEnoughSubset(m, pm):
+				for prevLink in previous[pm]:
+					#if prevLink=='--NME--':
+					#	special=utils.makeVU(m)
+					#	break
+					prevLinkDB=utils.makeDbpedia(prevLink)
+					candidates.append(tuple([prevLinkDB, {"ss": Levenshtein.ratio(m.lower(), pm.lower()), "count": 0.0}]))
+	return candidates, special
 
 def noCandidate(newCand, cands):
 	return not any(newCand==c1 for c1,c2 in cands)
@@ -318,19 +356,32 @@ def run(g, factorWeights={'wss':0.5,'wc':0.4, 'wa':0.05, 'wr': 0.05, 'wt': 0.0},
 	limitFirstTime=0.375
 	limitReread=0.54
 	qres=utils.getNIFEntities(g)
+	global chains
+	chains=utils.getCorefChains(g)
+	global offsetsToIds
+	offsetsToIds={}
+	global idToOffsets
+	idToOffsets={}
 	for row in qres:
 		mention=row['mention']
-		start=row['start']
-		systemLink=row['end']
+		start=str(row['start'])
+		end=str(row['end'])
 		entityId=row['id']
-		candidates, maxCount=generateCandidatesWithLOTUS(mention, minSize, maxSize)
-		candidates=moreLocalCandidates(mention, resolvedMentions, candidates)
-		candidates=appendViews(candidates, timePickle)
 		nextId=str(len(resolvedEntities)+1)
+		currentOffset=tuple([start,end])
+		offsetsToIds[currentOffset]=nextId
+		idToOffsets[nextId]=currentOffset
+		candidates, maxCount=generateCandidatesWithLOTUS(mention, minSize, maxSize)
+		candidates, special=moreLocalCandidates(mention, resolvedMentions, candidates, currentOffset, resolvedEntities)
 		allCandidates[nextId]=candidates
 		allMentions[nextId]=mention
-		#print("############################################## Resolving " + mention)
-		myLink, score=disambiguateEntity(candidates, weights, resolvedEntities, factorWeights, maxCount, int(nextId), limitFirstTime, lastN)
+		if not special:
+			candidates=appendViews(candidates, timePickle)
+			#print("############################################## Resolving " + mention)
+			myLink, score=disambiguateEntity(candidates, weights, resolvedEntities, factorWeights, maxCount, int(nextId), limitFirstTime, lastN)
+		else:
+			myLink=special
+			score=1.0
 		#print()
 		#print("########################### BEST: %s. Score: %f" % (myLink, score))
 		#print()
@@ -348,7 +399,8 @@ def run(g, factorWeights={'wss':0.5,'wc':0.4, 'wa':0.05, 'wr': 0.05, 'wt': 0.0},
 			while start<=len(resolvedEntities):
 				link=resolvedEntities[str(start)]
 				if link=='--NME--':
-					link=utils.makeVU()
+					#g.add( (originalIds[str(start)], identityRelation, Literal("null")) )
+					link=utils.makeVU(allMentions[str(start)])
 				else:
 					link=utils.makeDbpedia(link)
 				g.add( (originalIds[str(start)], identityRelation, URIRef(link)) )

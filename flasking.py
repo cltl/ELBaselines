@@ -37,6 +37,7 @@ def run(iterations, memory):
 	#for s,p,o in g.triples( (None, entityMention, None) ):
 	#	print("%s has mention %s" % (s, o))
 	w.write(str(outputRDF) + '\n')
+	
 	return Response(outputRDF, mimetype=mimetype)
 
 if __name__ == "__main__":
