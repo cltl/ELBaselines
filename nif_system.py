@@ -29,12 +29,14 @@ def maxCoherence(w, l):
 		c+=1
 	return m
 
-def reread(resolvedMentions, entities, start, allCandidates, allMentions, weights, factorWeights, timePickle, limit, lastN, N):
+def reread(resolvedMentions, entities, start, allCandidates, allMentions, weights, factorWeights, timePickle, limit, lastN, N, lcoref):
 	scores={}
 	while start<=len(entities):
 		mention=allMentions[str(start)]
 		candidates=allCandidates[str(start)]
-		candidates,special=moreLocalCandidates(mention, resolvedMentions, candidates, idToOffsets[str(start)], entities)
+		special=None
+		if lcoref:
+			candidates,special=moreLocalCandidates(mention, resolvedMentions, candidates, idToOffsets[str(start)], entities)
 		if not special:
 			candidates=appendViews(candidates, timePickle)
 
@@ -341,8 +343,7 @@ def computeWeights(n):
 		i+=1
 	return w
 
-def run(g, factorWeights={'wss':0.5,'wc':0.4, 'wa':0.05, 'wr': 0.05, 'wt': 0.0}, timePickle={}, iterations=1, lastN=[]):
-	N=10
+def run(g, factorWeights={'wss':0.5,'wc':0.4, 'wa':0.05, 'wr': 0.05, 'wt': 0.0}, timePickle={}, iterations=1, lcoref=True, order=True, lastN=[], limits={'l1': 0.375, 'l2': 0.54}, N=10):
 	weights=computeWeights(N)
 	minSize=20
 	maxSize=200
@@ -353,9 +354,9 @@ def run(g, factorWeights={'wss':0.5,'wc':0.4, 'wa':0.05, 'wr': 0.05, 'wt': 0.0},
 	allCandidates={}
 	allMentions={}
 	originalIds={}
-	limitFirstTime=0.375
-	limitReread=0.54
-	qres=utils.getNIFEntities(g)
+	limitFirstTime=limits['l1']
+	limitReread=limits['l2']
+	qres=utils.getNIFEntities(g, order)
 	global chains
 	chains=utils.getCorefChains(g)
 	global offsetsToIds
@@ -372,7 +373,10 @@ def run(g, factorWeights={'wss':0.5,'wc':0.4, 'wa':0.05, 'wr': 0.05, 'wt': 0.0},
 		offsetsToIds[currentOffset]=nextId
 		idToOffsets[nextId]=currentOffset
 		candidates, maxCount=generateCandidatesWithLOTUS(mention, minSize, maxSize)
-		candidates, special=moreLocalCandidates(mention, resolvedMentions, candidates, currentOffset, resolvedEntities)
+		if lcoref:
+			candidates, special=moreLocalCandidates(mention, resolvedMentions, candidates, currentOffset, resolvedEntities)
+		else:
+			special=None
 		allCandidates[nextId]=candidates
 		allMentions[nextId]=mention
 		if not special:
@@ -394,7 +398,7 @@ def run(g, factorWeights={'wss':0.5,'wc':0.4, 'wa':0.05, 'wr': 0.05, 'wt': 0.0},
 		iterations-=1
 		start=1
 		if iterations>0:
-			resolvedEntities, scores, lastN=reread(resolvedMentions,resolvedEntities,start, allCandidates, allMentions, weights, factorWeights, timePickle, limitReread, lastN, N)
+			resolvedEntities, scores, lastN=reread(resolvedMentions,resolvedEntities,start, allCandidates, allMentions, weights, factorWeights, timePickle, limitReread, lastN, N, lcoref)
 		else:
 			while start<=len(resolvedEntities):
 				link=resolvedEntities[str(start)]

@@ -24,7 +24,8 @@ nones=["none", "nil", "--nme--"]
 
 def getCorefChains(g):
 	documentText=getNIFString(g)
-	if not documentText.startswith("BADMINTON - WORLD GRAND PRIX RESULTS. BALI 1996-12-06 Results"):
+#	if not documentText.startswith("BADMINTON - WORLD GRAND PRIX RESULTS. BALI 1996-12-06 Results") and not documentText.startswith("CRICKET - 1997 ASHES INTINERARY. LONDON 1996-08-30 Australia"):
+	if False:
 		result = loads(server.parse(documentText))
 		chains=[]
 		sentences=result['sentences']
@@ -53,15 +54,18 @@ def getNIFString(gr):
 	for r in qres:
 		return r['s']
 
-def getNIFEntities(gr):
+def getNIFEntities(gr, order):
+	if order:
+		orderBy='?start'
+	else:
+		orderBy='DESC(?start)'
 	qres = gr.query(
 	""" SELECT ?id ?mention ?start ?end
 	WHERE {
 		?id nif:anchorOf ?mention ;
 		nif:beginIndex ?start ;
 		nif:endIndex ?end .
-	} ORDER BY ?start
-	""")
+	} ORDER BY """ + orderBy)
 	return qres
 
 def obtain_view(entity, date='2008-01-01', debug=False):
