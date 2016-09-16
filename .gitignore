@@ -1,3 +1,7 @@
+*.log
+*.err
+__pycache__/
+*.txt
 *.p
 *.tsv
 *.out
